@@ -29,6 +29,10 @@ ERROR_DEFINITIONS = {
         "message": "Could not save/load file",
         "suggestion": "Check disk space and permissions",
     },
+    "UNSUPPORTED_FILE_FORMAT": {
+        "message": "Unsupported image format",
+        "suggestion": "Use JPG, PNG, or HEIC images",
+    },
 }
 
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic"}

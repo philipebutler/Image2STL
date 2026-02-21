@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import asdict
 from pathlib import Path
 
 from .engine import parse_json_line, process_command
@@ -30,7 +31,7 @@ def main() -> int:
         return 0
 
     if args.action == "load":
-        print(json.dumps(load_project(args.project_dir).__dict__))
+        print(json.dumps(asdict(load_project(args.project_dir))))
         return 0
 
     command = parse_json_line(args.json)

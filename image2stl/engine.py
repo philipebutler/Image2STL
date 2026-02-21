@@ -5,6 +5,9 @@ from pathlib import Path
 
 from .errors import SUPPORTED_IMAGE_EXTENSIONS, make_error
 
+WARNING_THRESHOLD_SECONDS = 600
+DEFAULT_INPUT_DIMENSIONS_MM = (100.0, 120.0, 80.0)
+
 
 def parse_json_line(line: str) -> dict:
     parsed = json.loads(line)
@@ -31,7 +34,7 @@ def _status(progress: float, text: str, estimated: int | None = None) -> dict:
     msg = {"type": "progress", "progress": progress, "status": text}
     if estimated is not None:
         msg["estimatedSecondsRemaining"] = estimated
-        if estimated > 600:
+        if estimated > WARNING_THRESHOLD_SECONDS:
             msg["warning"] = "Estimated processing time exceeds 10 minutes"
     return msg
 
@@ -44,7 +47,7 @@ def _validate_reconstruction(command: dict) -> dict | None:
         return make_error("reconstruct", "TOO_MANY_IMAGES")
     for image in images:
         if Path(image).suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
-            return make_error("reconstruct", "INSUFFICIENT_FEATURES")
+            return make_error("reconstruct", "UNSUPPORTED_FILE_FORMAT")
     if command.get("mode") == "cloud" and command.get("simulateApiError"):
         return make_error("reconstruct", "API_ERROR")
     return None
@@ -84,7 +87,8 @@ def process_command(command: dict) -> list[dict]:
     if cmd == "scale":
         src = Path(command["inputMesh"])
         dst = Path(command["outputMesh"])
-        factor = calculate_scale_factor((100.0, 120.0, 80.0), float(command["targetSizeMm"]), command.get("axis", "longest"))
+        input_dimensions = tuple(command.get("inputDimensionsMm", DEFAULT_INPUT_DIMENSIONS_MM))
+        factor = calculate_scale_factor(input_dimensions, float(command["targetSizeMm"]), command.get("axis", "longest"))
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_text(f"; scale_factor={factor:.4f}\n{src.read_text(encoding='utf-8')}", encoding="utf-8")
         return [{"type": "success", "command": "scale", "outputPath": str(dst), "scaleFactor": factor}]

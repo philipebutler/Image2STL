@@ -44,9 +44,11 @@ class Project:
         for image_path in image_paths:
             src = image_path.resolve()
             if src.suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
-                raise ValueError(f"Unsupported image type: {src.suffix}")
+                raise ValueError(
+                    f"Unsupported image type: {src.suffix}. Supported formats: JPG, PNG, HEIC"
+                )
             target = (images_dir / src.name).resolve()
-            if images_dir not in target.parents:
+            if target.parent != images_dir:
                 raise ValueError("Invalid image destination path")
             shutil.copy2(src, target)
             copied.append(f"images/{target.name}")
