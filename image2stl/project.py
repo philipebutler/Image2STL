@@ -45,7 +45,7 @@ class Project:
             src = image_path.resolve()
             if src.suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
                 raise ValueError(
-                    f"Unsupported image type: {src.suffix}. Supported formats: JPG, PNG, HEIC"
+                    f"Unsupported image type: {src.suffix}. Supported formats: JPG, PNG, HEIC, HEIF"
                 )
             target = (images_dir / src.name).resolve()
             if target.parent != images_dir:
