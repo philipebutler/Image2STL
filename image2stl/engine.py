@@ -162,6 +162,8 @@ def check_image_quality(image_paths: list[str]) -> list[dict]:
 
                     grey = img.convert("L")
                     arr = np.array(grey, dtype=np.float64)
+                    # Discrete Laplacian: sum of 4-connected neighbours minus 4× centre pixel.
+                    # Low variance of this kernel indicates a blurry image.
                     laplacian = (
                         arr[:-2, 1:-1] + arr[2:, 1:-1] + arr[1:-1, :-2] + arr[1:-1, 2:] - 4 * arr[1:-1, 1:-1]
                     )

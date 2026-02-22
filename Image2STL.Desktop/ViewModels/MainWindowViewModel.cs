@@ -354,9 +354,9 @@ public class MainWindowViewModel : ViewModelBase
                 ShowError(message, suggestion);
             }
         }
-        catch
+        catch (JsonException)
         {
-            // Ignore malformed messages
+            // Ignore malformed JSON messages from the engine
         }
     }
 
