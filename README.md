@@ -8,6 +8,12 @@ This repository now contains a minimal MVP implementation driven by `SPEC.md`.
 python -m unittest discover -s tests -v
 ```
 
+## Build desktop UI
+
+```bash
+dotnet build Image2STL.Desktop/Image2STL.Desktop.csproj
+```
+
 ## CLI examples
 
 Create project:
