@@ -3,13 +3,14 @@
 ## Summary
 
 A minimal, runnable MVP was implemented from an empty repository baseline using the requirements in `SPEC.md`.
+This follow-on update adds project workflow wiring in the CLI shell for image import and project-driven reconstruction execution.
 
 ## Requirement Verification Matrix
 
 ### Functional Requirements
 
 - **FR1 Project Management**: ✅ Implemented via `create_project`, `Project.save`, and `load_project` with `project.json` persistence and folder structure.
-- **FR2 Image Input**: ✅ Implemented core MVP constraints in command processing (3-5 images, JPG/PNG/HEIC validation). UI drag-drop/file-picker deferred to follow-on phase.
+- **FR2 Image Input**: ✅ Implemented core MVP constraints in command processing (3-5 images, JPG/PNG/HEIC validation) and added CLI project image import (`add-images`) with persisted project state. UI drag-drop/file-picker remains deferred.
 - **FR3 3D Reconstruction**: ✅ Implemented command-based local/cloud mode handling with progress responses and output mesh artifact generation (mock reconstruction for MVP).
 - **FR4 Mesh Processing**: ✅ Implemented repair command flow and output handoff to repaired mesh file (minimal file-based repair stage).
 - **FR5 3D Preview**: ✅ Implemented preview-generation status stage and preview pipeline hook in progress flow (interactive viewer deferred).
@@ -31,6 +32,7 @@ Implemented and passed focused tests for SPEC test priorities:
 
 - Project serialization/deserialization
 - Image validation
+- CLI project workflow wiring (add-images, reconstruct-project)
 - Scale calculations
 - IPC message parsing
 - Progress status sequencing

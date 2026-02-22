@@ -4,6 +4,7 @@ The implemented MVP delivers core command and data-model behavior from `SPEC.md`
 
 ## Remaining Phase Work
 
+- [x] Wire project workflow shell (create/load/add-images/reconstruct) in CLI
 - [ ] Build full Avalonia desktop UI (image gallery thumbnails, drag-drop, file picker)
 - [ ] Integrate interactive 3D viewer with rotate/zoom
 - [ ] Replace mock reconstruction with TripoSR local inference
