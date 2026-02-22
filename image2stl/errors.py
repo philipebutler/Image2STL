@@ -25,6 +25,10 @@ ERROR_DEFINITIONS = {
         "message": "Could not create printable mesh",
         "suggestion": "Try different source images",
     },
+    "OPERATION_CANCELLED": {
+        "message": "Operation was cancelled",
+        "suggestion": "Retry when ready",
+    },
     "FILE_IO_ERROR": {
         "message": "Could not save/load file",
         "suggestion": "Check disk space and permissions",

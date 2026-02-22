@@ -1,17 +1,46 @@
 # Image2STL MVP
 
-This repository now contains a minimal MVP implementation driven by `SPEC.md`.
+Image2STL converts 3-5 smartphone images into a printable STL workflow with:
+
+- local reconstruction (TripoSR)
+- cloud reconstruction (Meshy.ai)
+- mesh repair/scaling commands
+- Avalonia desktop image gallery + 3D preview shell
+
+Implementation scope and behavior are defined in `SPEC.md`.
+
+## Install
+
+### Python CLI dependencies
+
+```bash
+python -m pip install pillow torch transformers trimesh pymeshlab
+```
+
+### TripoSR configuration (local mode)
+
+- Local mode loads `stabilityai/TripoSR` through Hugging Face on first run.
+- Ensure internet access for first model download and enough disk space for model cache.
+- GPU is optional; CPU execution is supported but slower.
+- If you use macOS Apple Silicon, install a compatible PyTorch build before running local reconstruction.
+
+### Desktop app build
+
+```bash
+dotnet build Image2STL.Desktop/Image2STL.Desktop.csproj
+```
+
+### Packaging targets
+
+Use the included packaging helpers:
+
+- Windows: `Image2STL.Desktop/packaging/build-windows-installer.ps1`
+- macOS: `Image2STL.Desktop/packaging/build-macos-installer.sh`
 
 ## Run tests
 
 ```bash
 python -m unittest discover -s tests -v
-```
-
-## Build desktop UI
-
-```bash
-dotnet build Image2STL.Desktop/Image2STL.Desktop.csproj
 ```
 
 ## CLI examples

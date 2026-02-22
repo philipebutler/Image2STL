@@ -1,5 +1,7 @@
 import json
+import sys
 import tempfile
+import types
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -139,6 +141,60 @@ class MVPTests(unittest.TestCase):
                 }
             )
             self.assertEqual(result[0]["scaleFactor"], 2.0)
+
+    def test_cancel_operation_marks_reconstruct_as_cancelled(self):
+        process_command({"command": "cancel", "operationId": "op-1"})
+        result = process_command(
+            {
+                "command": "reconstruct",
+                "operationId": "op-1",
+                "mode": "local",
+                "images": ["a.jpg", "b.png", "c.heic"],
+                "outputPath": "/tmp/out.obj",
+            }
+        )
+        self.assertEqual(result[0]["errorCode"], "OPERATION_CANCELLED")
+
+    def test_repair_uses_trimesh_pipeline(self):
+        class FakeMesh:
+            vertices = [0, 1, 2]
+            faces = [0]
+            is_watertight = True
+
+            def remove_duplicate_faces(self):
+                return None
+
+            def remove_degenerate_faces(self):
+                return None
+
+            def remove_unreferenced_vertices(self):
+                return None
+
+            def fix_normals(self):
+                return None
+
+            def fill_holes(self):
+                return None
+
+            def export(self, output_path: str):
+                Path(output_path).write_text("solid repaired\nendsolid repaired\n", encoding="utf-8")
+
+        fake_trimesh = types.SimpleNamespace(load=lambda _path, force="mesh": FakeMesh(), Scene=type("Scene", (), {}))
+        with patch.dict(sys.modules, {"trimesh": fake_trimesh}, clear=False):
+            with tempfile.TemporaryDirectory() as tmp:
+                src = Path(tmp) / "in.stl"
+                dst = Path(tmp) / "out.stl"
+                src.write_text("solid demo\nendsolid demo\n", encoding="utf-8")
+                result = process_command(
+                    {
+                        "command": "repair",
+                        "inputMesh": str(src),
+                        "outputMesh": str(dst),
+                    }
+                )
+                self.assertTrue(dst.exists())
+        self.assertEqual(result[0]["type"], "success")
+        self.assertEqual(result[0]["stats"]["vertices"], 3)
 
     def test_cli_add_images_updates_project(self):
         with tempfile.TemporaryDirectory() as tmp:
