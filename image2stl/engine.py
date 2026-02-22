@@ -21,6 +21,10 @@ _CANCELLED_OPERATION_IDS: set[str] = set()
 _CANCEL_LOCK = threading.Lock()
 
 
+class OperationCancelledError(RuntimeError):
+    pass
+
+
 def parse_json_line(line: str) -> dict:
     parsed = json.loads(line)
     if not isinstance(parsed, dict):
@@ -87,6 +91,11 @@ def _clear_operation_cancelled(operation_id: str | None) -> None:
         _CANCELLED_OPERATION_IDS.discard(operation_id)
 
 
+def _cleanup_operation(token: contextvars.Token[str | None], operation_id: str | None) -> None:
+    _CURRENT_OPERATION_ID.reset(token)
+    _clear_operation_cancelled(operation_id)
+
+
 def _run_triposr_local(images: list[str], target: Path) -> dict:
     """Run TripoSR with the primary capture image; additional captures are reserved for future multi-view tuning."""
     try:
@@ -98,7 +107,7 @@ def _run_triposr_local(images: list[str], target: Path) -> dict:
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if _is_operation_cancelled():
-        raise RuntimeError("Operation cancelled")
+        raise OperationCancelledError()
     model = TSR.from_pretrained("stabilityai/TripoSR")
     if hasattr(model, "to"):
         model = model.to(device)
@@ -108,7 +117,7 @@ def _run_triposr_local(images: list[str], target: Path) -> dict:
         scene_codes = model([image], device=device)
     meshes = model.extract_mesh(scene_codes)
     if _is_operation_cancelled():
-        raise RuntimeError("Operation cancelled")
+        raise OperationCancelledError()
     mesh = meshes[0]
     mesh.export(str(target))
     return {
@@ -146,7 +155,7 @@ def _run_meshy_cloud(images: list[str], target: Path, api_key: str) -> dict:
     final_task: dict = {}
     while time.monotonic() < deadline:
         if _is_operation_cancelled():
-            raise RuntimeError("Operation cancelled")
+            raise OperationCancelledError()
         status_request = urlrequest.Request(status_url, headers=headers, method="GET")
         with urlrequest.urlopen(status_request, timeout=timeout_seconds) as response:
             final_task = json.loads(response.read().decode("utf-8"))
@@ -173,29 +182,28 @@ def process_command(command: dict) -> list[dict]:
     cmd = command.get("command")
     operation_id = command.get("operationId")
     if cmd == "cancel":
-        _mark_operation_cancelled(str(operation_id or command.get("targetOperationId") or ""))
-        return [{"type": "success", "command": "cancel", "operationId": str(operation_id or command.get("targetOperationId") or "")}]
+        cancel_target = str(operation_id or command.get("targetOperationId") or "")
+        _mark_operation_cancelled(cancel_target)
+        return [{"type": "success", "command": "cancel", "operationId": cancel_target}]
     output = []
     if cmd == "reconstruct":
         validation_error = _validate_reconstruction(command)
         if validation_error:
             return [validation_error]
-        token = _CURRENT_OPERATION_ID.set(str(operation_id) if operation_id else None)
+        op_id = str(operation_id) if operation_id else None
+        token = _CURRENT_OPERATION_ID.set(op_id)
+        def _cancelled_response() -> list[dict]:
+            _cleanup_operation(token, op_id)
+            return [make_error("reconstruct", "OPERATION_CANCELLED")]
         output.append(_status(0.1, "Loading images...", estimated=120))
-        if _is_operation_cancelled(str(operation_id) if operation_id else None):
-            _CURRENT_OPERATION_ID.reset(token)
-            _clear_operation_cancelled(str(operation_id) if operation_id else None)
-            return [make_error("reconstruct", "OPERATION_CANCELLED")]
+        if _is_operation_cancelled(op_id):
+            return _cancelled_response()
         output.append(_status(0.5, "Running AI reconstruction...", estimated=480))
-        if _is_operation_cancelled(str(operation_id) if operation_id else None):
-            _CURRENT_OPERATION_ID.reset(token)
-            _clear_operation_cancelled(str(operation_id) if operation_id else None)
-            return [make_error("reconstruct", "OPERATION_CANCELLED")]
+        if _is_operation_cancelled(op_id):
+            return _cancelled_response()
         output.append(_status(0.8, "Repairing mesh...", estimated=90))
-        if _is_operation_cancelled(str(operation_id) if operation_id else None):
-            _CURRENT_OPERATION_ID.reset(token)
-            _clear_operation_cancelled(str(operation_id) if operation_id else None)
-            return [make_error("reconstruct", "OPERATION_CANCELLED")]
+        if _is_operation_cancelled(op_id):
+            return _cancelled_response()
         output.append(_status(0.95, "Generating preview...", estimated=20))
         target = Path(command["outputPath"])
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -208,13 +216,14 @@ def process_command(command: dict) -> list[dict]:
                 stats = _run_meshy_cloud(command["images"], target, api_key)
             else:
                 stats = _run_triposr_local(command["images"], target)
-        except (urlerror.URLError, RuntimeError, ValueError) as exc:
-            error_code = "OPERATION_CANCELLED" if _is_operation_cancelled(str(operation_id) if operation_id else None) or "cancel" in str(exc).lower() else ("API_ERROR" if mode == "cloud" else "RECONSTRUCTION_FAILED")
-            _CURRENT_OPERATION_ID.reset(token)
-            _clear_operation_cancelled(str(operation_id) if operation_id else None)
+        except OperationCancelledError:
+            _cleanup_operation(token, op_id)
+            return [make_error("reconstruct", "OPERATION_CANCELLED")]
+        except (urlerror.URLError, RuntimeError, ValueError):
+            error_code = "API_ERROR" if mode == "cloud" else "RECONSTRUCTION_FAILED"
+            _cleanup_operation(token, op_id)
             return [make_error("reconstruct", error_code)]
-        _CURRENT_OPERATION_ID.reset(token)
-        _clear_operation_cancelled(str(operation_id) if operation_id else None)
+        _cleanup_operation(token, op_id)
         output.append(
             {
                 "type": "success",
