@@ -80,7 +80,11 @@ class MVPTests(unittest.TestCase):
             self.assertEqual(messages[-1]["type"], "success")
 
     def test_heif_support_registered_by_engine(self):
-        """Calling _ensure_heif_support should register HEIC/HEIF with Pillow."""
+        """Calling _ensure_heif_support should register HEIC/HEIF with Pillow when pillow-heif is available."""
+        try:
+            import pillow_heif  # noqa: F401
+        except ImportError:
+            self.skipTest("pillow-heif not installed")
         from image2stl.engine import _ensure_heif_support
         _ensure_heif_support()
         from PIL import Image

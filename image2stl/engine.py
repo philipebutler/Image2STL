@@ -23,9 +23,9 @@ def _ensure_heif_support() -> None:
         import pillow_heif
 
         pillow_heif.register_heif_opener()
+        _HEIF_REGISTERED = True
     except (ImportError, ModuleNotFoundError):
         pass
-    _HEIF_REGISTERED = True
 
 
 WARNING_THRESHOLD_SECONDS = 600
