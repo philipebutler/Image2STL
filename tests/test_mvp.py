@@ -111,7 +111,7 @@ class MVPTests(unittest.TestCase):
             images = []
             for index, suffix in enumerate(("jpg", "png", "heic"), start=1):
                 image = base / f"IMG_{index}.{suffix}"
-                image.write_text("x", encoding="utf-8")
+                image.write_text("mock_image_data", encoding="utf-8")
                 images.append(image)
             code, output = self._run_cli(["add-images", "--project-dir", str(project_dir), *map(str, images)])
             project = load_project(project_dir)
@@ -126,7 +126,7 @@ class MVPTests(unittest.TestCase):
             image_paths = []
             for index in range(3):
                 image = base / f"IMG_{index}.jpg"
-                image.write_text("x", encoding="utf-8")
+                image.write_text("mock_image_data", encoding="utf-8")
                 image_paths.append(image)
             self._run_cli(["add-images", "--project-dir", str(project_dir), *map(str, image_paths)])
             code, output = self._run_cli(

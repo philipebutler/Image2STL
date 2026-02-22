@@ -64,7 +64,7 @@ def main() -> int:
         messages = process_command(command)
         for message in messages:
             print(json.dumps(message))
-        if messages[-1].get("type") == "success":
+        if messages and messages[-1].get("type") == "success":
             project.modelPath = "models/raw_reconstruction.obj"
             project.save(args.project_dir)
             return 0
