@@ -30,6 +30,7 @@ def main() -> int:
     reconstruct_project_cmd = sub.add_parser("reconstruct-project")
     reconstruct_project_cmd.add_argument("--project-dir", type=Path, required=True)
     reconstruct_project_cmd.add_argument("--mode", choices=("local", "cloud"))
+    reconstruct_project_cmd.add_argument("--api-key")
 
     args = parser.parse_args()
 
@@ -61,6 +62,8 @@ def main() -> int:
             "outputPath": str(output_path),
             "projectId": project.projectId,
         }
+        if args.api_key:
+            command["apiKey"] = args.api_key
         messages = process_command(command)
         for message in messages:
             print(json.dumps(message))

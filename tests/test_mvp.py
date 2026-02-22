@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -62,14 +63,20 @@ class MVPTests(unittest.TestCase):
     def test_reconstruct_progress_messages(self):
         with tempfile.TemporaryDirectory() as tmp:
             output_path = Path(tmp) / "raw.obj"
-            messages = process_command(
-                {
-                    "command": "reconstruct",
-                    "mode": "local",
-                    "images": ["a.jpg", "b.png", "c.heic"],
-                    "outputPath": str(output_path),
-                }
-            )
+            with patch("image2stl.engine._run_triposr_local") as run_local:
+                def local_inference(_images, target):
+                    target.write_text("o local\nv 0 0 0\n", encoding="utf-8")
+                    return {"vertices": 1, "faces": 0}
+
+                run_local.side_effect = local_inference
+                messages = process_command(
+                    {
+                        "command": "reconstruct",
+                        "mode": "local",
+                        "images": ["a.jpg", "b.png", "c.heic"],
+                        "outputPath": str(output_path),
+                    }
+                )
             statuses = [m["status"] for m in messages if m.get("type") == "progress"]
             self.assertEqual(
                 statuses,
@@ -80,6 +87,38 @@ class MVPTests(unittest.TestCase):
                     "Generating preview...",
                 ],
             )
+            self.assertEqual(messages[-1]["type"], "success")
+            self.assertTrue(output_path.exists())
+
+    def test_cloud_mode_requires_api_key(self):
+        result = process_command(
+            {
+                "command": "reconstruct",
+                "mode": "cloud",
+                "images": ["a.jpg", "b.jpg", "c.jpg"],
+                "outputPath": "/tmp/out.obj",
+            }
+        )
+        self.assertEqual(result[0]["errorCode"], "API_ERROR")
+
+    def test_cloud_mode_uses_environment_api_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "raw.obj"
+            with patch.dict(os.environ, {"MESHY_API_KEY": "test-key"}, clear=False):
+                with patch("image2stl.engine._run_meshy_cloud") as run_cloud:
+                    def cloud_inference(_images, target, _api_key):
+                        target.write_text("o cloud\nv 0 0 0\n", encoding="utf-8")
+                        return {"vertices": 1, "faces": 0}
+
+                    run_cloud.side_effect = cloud_inference
+                    messages = process_command(
+                        {
+                            "command": "reconstruct",
+                            "mode": "cloud",
+                            "images": ["a.jpg", "b.png", "c.heic"],
+                            "outputPath": str(output_path),
+                        }
+                    )
             self.assertEqual(messages[-1]["type"], "success")
             self.assertTrue(output_path.exists())
 
@@ -129,9 +168,16 @@ class MVPTests(unittest.TestCase):
                 image.write_text("mock_image_data", encoding="utf-8")
                 image_paths.append(image)
             self._run_cli(["add-images", "--project-dir", str(project_dir), *map(str, image_paths)])
-            code, output = self._run_cli(
-                ["reconstruct-project", "--project-dir", str(project_dir), "--mode", "cloud"]
-            )
+            with patch.dict(os.environ, {"MESHY_API_KEY": "test-key"}, clear=False):
+                with patch("image2stl.engine._run_meshy_cloud") as run_cloud:
+                    def cloud_inference(_images, target, _api_key):
+                        target.write_text("o cloud\nv 0 0 0\n", encoding="utf-8")
+                        return {"vertices": 1, "faces": 0}
+
+                    run_cloud.side_effect = cloud_inference
+                    code, output = self._run_cli(
+                        ["reconstruct-project", "--project-dir", str(project_dir), "--mode", "cloud"]
+                    )
             project = load_project(project_dir)
             self.assertEqual(code, 0)
             self.assertEqual(project.reconstructionMode, "cloud")
