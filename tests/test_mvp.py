@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from image2stl import cli
-from image2stl.engine import calculate_scale_factor, parse_json_line, process_command
+from image2stl.engine import calculate_scale_factor, check_image_quality, parse_json_line, process_command
 from image2stl.project import create_project, load_project
 
 
@@ -274,6 +274,137 @@ class MVPTests(unittest.TestCase):
             self.assertEqual(project.modelPath, "models/raw_reconstruction.obj")
             self.assertEqual(output[-1]["type"], "success")
             self.assertTrue((project_dir / project.modelPath).exists())
+
+    def test_webp_extension_accepted_in_validation(self):
+        """WebP extension (.webp) should pass image validation."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "raw.obj"
+            with patch("image2stl.engine._run_triposr_local") as run_local:
+                run_local.side_effect = lambda _images, target: _write_test_mesh(target, "webp")
+                messages = process_command(
+                    {
+                        "command": "reconstruct",
+                        "mode": "local",
+                        "images": ["a.jpg", "b.webp", "c.png"],
+                        "outputPath": str(output_path),
+                    }
+                )
+            self.assertEqual(messages[-1]["type"], "success")
+
+    def test_avif_extension_accepted_in_validation(self):
+        """AVIF extension (.avif) should pass image validation."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "raw.obj"
+            with patch("image2stl.engine._run_triposr_local") as run_local:
+                run_local.side_effect = lambda _images, target: _write_test_mesh(target, "avif")
+                messages = process_command(
+                    {
+                        "command": "reconstruct",
+                        "mode": "local",
+                        "images": ["a.avif", "b.jpg", "c.png"],
+                        "outputPath": str(output_path),
+                    }
+                )
+            self.assertEqual(messages[-1]["type"], "success")
+
+    def test_add_images_accepts_webp_extension(self):
+        """Project.add_images should accept .webp files."""
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            _, project_dir = create_project(base, "WebpTest")
+            image = base / "photo.webp"
+            image.write_text("mock_webp_data", encoding="utf-8")
+            project = load_project(project_dir)
+            copied = project.add_images(project_dir, [image])
+            self.assertEqual(len(copied), 1)
+            self.assertTrue(copied[0].endswith(".webp"))
+
+    def test_check_image_quality_low_resolution(self):
+        """check_image_quality should warn about images smaller than 512x512."""
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not installed")
+        with tempfile.TemporaryDirectory() as tmp:
+            small = Path(tmp) / "small.png"
+            Image.new("RGB", (256, 256), (128, 128, 128)).save(str(small))
+            warnings = check_image_quality([str(small)])
+            issues = [w["issue"] for w in warnings]
+            self.assertIn("low_resolution", issues)
+
+    def test_check_image_quality_ok(self):
+        """check_image_quality should return no warnings for a large sharp image."""
+        try:
+            from PIL import Image
+            import numpy as np
+        except ImportError:
+            self.skipTest("Pillow or numpy not installed")
+        with tempfile.TemporaryDirectory() as tmp:
+            good = Path(tmp) / "good.png"
+            # Create an image with high-frequency content (not blurry)
+            arr = np.random.randint(0, 255, (600, 600, 3), dtype=np.uint8)
+            Image.fromarray(arr).save(str(good))
+            warnings = check_image_quality([str(good)])
+            self.assertEqual(len(warnings), 0)
+
+    def test_check_images_command(self):
+        """The check_images command should return quality warnings."""
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not installed")
+        with tempfile.TemporaryDirectory() as tmp:
+            small = Path(tmp) / "tiny.png"
+            Image.new("RGB", (100, 100), (50, 50, 50)).save(str(small))
+            result = process_command({"command": "check_images", "images": [str(small)]})
+            self.assertEqual(result[0]["type"], "success")
+            self.assertTrue(len(result[0]["warnings"]) > 0)
+
+    def test_repair_includes_watertight_validation(self):
+        """Repair result should include a validation dict with pass/fail."""
+        class FakeMesh:
+            vertices = [0, 1, 2]
+            faces = [0]
+            is_watertight = True
+
+            def remove_duplicate_faces(self):
+                return None
+
+            def remove_degenerate_faces(self):
+                return None
+
+            def remove_unreferenced_vertices(self):
+                return None
+
+            def fix_normals(self):
+                return None
+
+            def fill_holes(self):
+                return None
+
+            def split(self):
+                return [self]
+
+            def export(self, output_path: str):
+                Path(output_path).write_text("solid repaired\nendsolid repaired\n", encoding="utf-8")
+
+        fake_trimesh = types.SimpleNamespace(load=lambda _path, force="mesh": FakeMesh(), Scene=type("Scene", (), {}))
+        with patch.dict(sys.modules, {"trimesh": fake_trimesh}, clear=False):
+            with tempfile.TemporaryDirectory() as tmp:
+                src = Path(tmp) / "in.stl"
+                dst = Path(tmp) / "out.stl"
+                src.write_text("solid demo\nendsolid demo\n", encoding="utf-8")
+                result = process_command(
+                    {
+                        "command": "repair",
+                        "inputMesh": str(src),
+                        "outputMesh": str(dst),
+                    }
+                )
+        self.assertEqual(result[0]["type"], "success")
+        self.assertIn("validation", result[0])
+        self.assertEqual(result[0]["validation"]["watertight"], True)
+        self.assertEqual(result[0]["validation"]["result"], "pass")
 
 
 if __name__ == "__main__":

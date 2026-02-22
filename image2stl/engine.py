@@ -12,6 +12,10 @@ from urllib import request as urlrequest
 from .errors import SUPPORTED_IMAGE_EXTENSIONS, make_error
 
 _HEIF_REGISTERED = False
+_AVIF_REGISTERED = False
+
+DEFAULT_TARGET_FACE_COUNT = 100000
+MIN_IMAGE_DIMENSION = 512
 
 
 def _ensure_heif_support() -> None:
@@ -24,6 +28,19 @@ def _ensure_heif_support() -> None:
 
         pillow_heif.register_heif_opener()
         _HEIF_REGISTERED = True
+    except (ImportError, ModuleNotFoundError):
+        pass
+
+
+def _ensure_avif_support() -> None:
+    """Register pillow-avif-plugin so Pillow can read AVIF images."""
+    global _AVIF_REGISTERED
+    if _AVIF_REGISTERED:
+        return
+    try:
+        import pillow_avif  # noqa: F401
+
+        _AVIF_REGISTERED = True
     except (ImportError, ModuleNotFoundError):
         pass
 
@@ -113,6 +130,61 @@ def _cleanup_operation(token: contextvars.Token[str | None], operation_id: str |
     _clear_operation_cancelled(operation_id)
 
 
+def check_image_quality(image_paths: list[str]) -> list[dict]:
+    """Pre-flight image quality checks: resolution and blur detection.
+
+    Returns a list of warning dicts for images that may cause problems during
+    reconstruction.  Each dict contains *path*, *issue*, and *suggestion* keys.
+    """
+    warnings: list[dict] = []
+    try:
+        from PIL import Image
+    except (ImportError, ModuleNotFoundError):
+        return warnings
+
+    _ensure_heif_support()
+    _ensure_avif_support()
+
+    for image_path in image_paths:
+        try:
+            with Image.open(image_path) as img:
+                w, h = img.size
+                if w < MIN_IMAGE_DIMENSION or h < MIN_IMAGE_DIMENSION:
+                    warnings.append({
+                        "path": image_path,
+                        "issue": "low_resolution",
+                        "detail": f"Image is {w}x{h}; minimum recommended is {MIN_IMAGE_DIMENSION}x{MIN_IMAGE_DIMENSION}",
+                        "suggestion": "Use higher resolution images for better reconstruction quality",
+                    })
+                # Blur detection via Laplacian variance (requires numpy)
+                try:
+                    import numpy as np  # type: ignore
+
+                    grey = img.convert("L")
+                    arr = np.array(grey, dtype=np.float64)
+                    laplacian = (
+                        arr[:-2, 1:-1] + arr[2:, 1:-1] + arr[1:-1, :-2] + arr[1:-1, 2:] - 4 * arr[1:-1, 1:-1]
+                    )
+                    variance = float(np.var(laplacian))
+                    if variance < 100.0:
+                        warnings.append({
+                            "path": image_path,
+                            "issue": "blurry",
+                            "detail": f"Laplacian variance {variance:.1f} is below threshold 100",
+                            "suggestion": "Use sharper, well-focused images",
+                        })
+                except (ImportError, ModuleNotFoundError):
+                    pass
+        except (OSError, ValueError):
+            warnings.append({
+                "path": image_path,
+                "issue": "unreadable",
+                "detail": "Could not open image file",
+                "suggestion": "Ensure the file is a valid image",
+            })
+    return warnings
+
+
 def _run_triposr_local(images: list[str], target: Path) -> dict:
     """Run TripoSR with the primary capture image; additional captures are reserved for future multi-view tuning."""
     try:
@@ -130,6 +202,7 @@ def _run_triposr_local(images: list[str], target: Path) -> dict:
         model = model.to(device)
     primary_image = images[0]  # TripoSR inference currently runs from the primary capture image.
     _ensure_heif_support()
+    _ensure_avif_support()
     with Image.open(primary_image) as src_image:
         image = src_image.convert("RGB")
         scene_codes = model([image], device=device)
@@ -255,6 +328,7 @@ def process_command(command: dict) -> list[dict]:
     if cmd == "repair":
         src = Path(command["inputMesh"])
         dst = Path(command["outputMesh"])
+        target_faces = int(command.get("targetFaceCount", DEFAULT_TARGET_FACE_COUNT))
         dst.parent.mkdir(parents=True, exist_ok=True)
         if _is_operation_cancelled(str(operation_id) if operation_id else None):
             return [make_error("repair", "OPERATION_CANCELLED")]
@@ -271,6 +345,16 @@ def process_command(command: dict) -> list[dict]:
                 mesh_set.meshing_remove_duplicate_faces()
                 mesh_set.meshing_remove_duplicate_vertices()
                 mesh_set.meshing_re_orient_all_faces_coherentely()
+                # Decimation to target face count (SPEC FR4)
+                current = mesh_set.current_mesh()
+                if hasattr(current, "face_number") and current.face_number() > target_faces:
+                    mesh_set.meshing_decimation_quadric_edge_collapse(targetfacenum=target_faces)
+                # Remove internal geometry when available
+                try:
+                    mesh_set.compute_selection_by_small_disconnected_components_per_face()
+                    mesh_set.meshing_remove_selected_faces()
+                except AttributeError:
+                    pass
                 mesh_set.save_current_mesh(str(dst))
                 repaired = True
             except (ImportError, ModuleNotFoundError, AttributeError):
@@ -289,7 +373,13 @@ def process_command(command: dict) -> list[dict]:
             mesh.remove_unreferenced_vertices()
             mesh.fix_normals()
             mesh.fill_holes()
+            # Remove small disconnected components (internal geometry)
+            if hasattr(mesh, "split") and callable(mesh.split):
+                components = mesh.split()
+                if len(components) > 1:
+                    mesh = max(components, key=lambda c: len(getattr(c, "faces", [])))
             mesh.export(str(dst))
+            is_watertight = bool(getattr(mesh, "is_watertight", False))
             return [
                 {
                     "type": "success",
@@ -298,7 +388,12 @@ def process_command(command: dict) -> list[dict]:
                     "stats": {
                         "vertices": len(getattr(mesh, "vertices", [])),
                         "faces": len(getattr(mesh, "faces", [])),
-                        "watertight": bool(getattr(mesh, "is_watertight", False)),
+                        "watertight": is_watertight,
+                    },
+                    "validation": {
+                        "watertight": is_watertight,
+                        "result": "pass" if is_watertight else "fail",
+                        "detail": "Mesh is watertight and printable" if is_watertight else "Mesh has holes; manual repair may be needed",
                     },
                 }
             ]
@@ -313,5 +408,10 @@ def process_command(command: dict) -> list[dict]:
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_text(f"; scale_factor={factor:.4f}\n{src.read_text(encoding='utf-8')}", encoding="utf-8")
         return [{"type": "success", "command": "scale", "outputPath": str(dst), "scaleFactor": factor}]
+
+    if cmd == "check_images":
+        images = command.get("images", [])
+        warnings = check_image_quality(images)
+        return [{"type": "success", "command": "check_images", "warnings": warnings}]
 
     return [make_error(cmd or "unknown", "RECONSTRUCTION_FAILED")]
