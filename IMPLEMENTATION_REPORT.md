@@ -3,7 +3,7 @@
 ## Summary
 
 A minimal, runnable MVP was implemented from an empty repository baseline using the requirements in `SPEC.md`.
-This follow-on update adds an Avalonia desktop UI shell with image gallery thumbnails, drag-drop/file-picker image ingest, and an interactive rotate/zoom 3D preview surface.
+This follow-on update adds an Avalonia desktop UI shell with image gallery thumbnails, drag-drop/file-picker image ingest, and an interactive rotate/zoom 3D preview surface. It now also replaces the local mock reconstruction output with a TripoSR inference path and adds a Meshy.ai cloud reconstruction client path with API key management.
 
 ## Requirement Verification Matrix
 
@@ -11,7 +11,7 @@ This follow-on update adds an Avalonia desktop UI shell with image gallery thumb
 
 - **FR1 Project Management**: ✅ Implemented via `create_project`, `Project.save`, and `load_project` with `project.json` persistence and folder structure.
 - **FR2 Image Input**: ✅ Implemented core MVP constraints in command processing (3-5 images, JPG/PNG/HEIC validation), CLI project image import (`add-images`), and Avalonia desktop image input via drag-drop + file picker with thumbnail gallery display.
-- **FR3 3D Reconstruction**: ✅ Implemented command-based local/cloud mode handling with progress responses and output mesh artifact generation (mock reconstruction for MVP).
+- **FR3 3D Reconstruction**: ✅ Implemented command-based local/cloud mode handling with progress responses, TripoSR local inference integration, and Meshy.ai cloud API integration.
 - **FR4 Mesh Processing**: ✅ Implemented repair command flow and output handoff to repaired mesh file (minimal file-based repair stage).
 - **FR5 3D Preview**: ✅ Implemented preview-generation status stage in CLI flow and integrated an interactive desktop 3D preview surface with mouse drag rotation and scroll-wheel zoom.
 - **FR6 Scaling**: ✅ Implemented `calculate_scale_factor` and `scale` command supporting longest/width/height/depth axes.
@@ -36,6 +36,7 @@ Implemented and passed focused tests for SPEC test priorities:
 - Scale calculations
 - IPC message parsing
 - Progress status sequencing
+- Cloud-mode API key requirements and environment-variable key resolution
 
 Desktop build verification:
 
@@ -52,3 +53,4 @@ python -m unittest discover -s tests -v
 - Uses structured JSON parsing for commands.
 - Restricts image extensions to allowed formats.
 - Uses resolved local paths for project file operations.
+- Requires user-provided Meshy.ai API key via command field or `MESHY_API_KEY` environment variable (no hard-coded credentials).

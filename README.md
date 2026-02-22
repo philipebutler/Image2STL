@@ -27,3 +27,9 @@ Run reconstruction command:
 ```bash
 python -m image2stl.cli run --json '{"command":"reconstruct","mode":"local","images":["a.jpg","b.png","c.heic"],"outputPath":"/tmp/model.obj"}'
 ```
+
+Cloud mode (API key from environment):
+
+```bash
+MESHY_API_KEY=your_key_here python -m image2stl.cli run --json '{"command":"reconstruct","mode":"cloud","images":["a.jpg","b.png","c.heic"],"outputPath":"/tmp/model.obj"}'
+```
