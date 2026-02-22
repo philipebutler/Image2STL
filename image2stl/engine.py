@@ -11,6 +11,23 @@ from urllib import request as urlrequest
 
 from .errors import SUPPORTED_IMAGE_EXTENSIONS, make_error
 
+_HEIF_REGISTERED = False
+
+
+def _ensure_heif_support() -> None:
+    """Register pillow-heif opener so Pillow can read HEIC/HEIF images."""
+    global _HEIF_REGISTERED
+    if _HEIF_REGISTERED:
+        return
+    try:
+        import pillow_heif
+
+        pillow_heif.register_heif_opener()
+    except (ImportError, ModuleNotFoundError):
+        pass
+    _HEIF_REGISTERED = True
+
+
 WARNING_THRESHOLD_SECONDS = 600
 DEFAULT_INPUT_DIMENSIONS_MM = (100.0, 120.0, 80.0)
 MESHY_BASE_URL = "https://api.meshy.ai/v1"
@@ -112,6 +129,7 @@ def _run_triposr_local(images: list[str], target: Path) -> dict:
     if hasattr(model, "to"):
         model = model.to(device)
     primary_image = images[0]  # TripoSR inference currently runs from the primary capture image.
+    _ensure_heif_support()
     with Image.open(primary_image) as src_image:
         image = src_image.convert("RGB")
         scene_codes = model([image], device=device)

@@ -35,11 +35,11 @@ ERROR_DEFINITIONS = {
     },
     "UNSUPPORTED_FILE_FORMAT": {
         "message": "Unsupported image format",
-        "suggestion": "Use JPG, PNG, or HEIC images",
+        "suggestion": "Use JPG, PNG, HEIC, or HEIF images",
     },
 }
 
-SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic"}
+SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif"}
 
 
 def make_error(command: str, code: str) -> dict:

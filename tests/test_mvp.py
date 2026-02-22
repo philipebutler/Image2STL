@@ -63,6 +63,43 @@ class MVPTests(unittest.TestCase):
         )
         self.assertEqual(result[0]["errorCode"], "UNSUPPORTED_FILE_FORMAT")
 
+    def test_heif_extension_accepted_in_validation(self):
+        """HEIF extension (.heif) should pass image validation like .heic."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "raw.obj"
+            with patch("image2stl.engine._run_triposr_local") as run_local:
+                run_local.side_effect = lambda _images, target: _write_test_mesh(target, "heif")
+                messages = process_command(
+                    {
+                        "command": "reconstruct",
+                        "mode": "local",
+                        "images": ["a.jpg", "b.heif", "c.heic"],
+                        "outputPath": str(output_path),
+                    }
+                )
+            self.assertEqual(messages[-1]["type"], "success")
+
+    def test_heif_support_registered_by_engine(self):
+        """Calling _ensure_heif_support should register HEIC/HEIF with Pillow."""
+        from image2stl.engine import _ensure_heif_support
+        _ensure_heif_support()
+        from PIL import Image
+        extensions = Image.registered_extensions()
+        self.assertIn(".heic", extensions)
+        self.assertIn(".heif", extensions)
+
+    def test_add_images_accepts_heif_extension(self):
+        """Project.add_images should accept .heif files."""
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            _, project_dir = create_project(base, "HeifTest")
+            image = base / "photo.heif"
+            image.write_text("mock_heif_data", encoding="utf-8")
+            project = load_project(project_dir)
+            copied = project.add_images(project_dir, [image])
+            self.assertEqual(len(copied), 1)
+            self.assertTrue(copied[0].endswith(".heif"))
+
     def test_ipc_message_parsing(self):
         payload = parse_json_line('{"command":"repair","inputMesh":"a.obj","outputMesh":"b.obj"}')
         self.assertEqual(payload["command"], "repair")
