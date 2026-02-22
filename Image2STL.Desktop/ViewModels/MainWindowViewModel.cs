@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -9,7 +10,8 @@ namespace Image2STL.Desktop.ViewModels;
 
 public class MainWindowViewModel : ViewModelBase
 {
-    private static readonly HashSet<string> SupportedExtensions = new(System.StringComparer.OrdinalIgnoreCase)
+    private static readonly JsonSerializerOptions ProjectJsonOptions = new() { WriteIndented = true };
+    private static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".jpg",
         ".jpeg",
@@ -31,11 +33,17 @@ public class MainWindowViewModel : ViewModelBase
     public void AddImages(IEnumerable<string> filePaths)
     {
         var skipped = 0;
-        foreach (var filePath in filePaths.Where(File.Exists))
+        foreach (var filePath in filePaths)
         {
+            if (!File.Exists(filePath))
+            {
+                skipped++;
+                continue;
+            }
+
             if (!SupportedExtensions.Contains(Path.GetExtension(filePath)))
             {
-                skipped += 1;
+                skipped++;
                 continue;
             }
 
@@ -47,7 +55,7 @@ public class MainWindowViewModel : ViewModelBase
             }
             catch
             {
-                skipped += 1;
+                skipped++;
             }
         }
 
@@ -76,18 +84,37 @@ public class MainWindowViewModel : ViewModelBase
 
     public void SaveProject(string projectPath)
     {
-        var project = new DesktopProject(Images.Select(image => image.FilePath).ToList());
-        File.WriteAllText(projectPath, JsonSerializer.Serialize(project, new JsonSerializerOptions { WriteIndented = true }));
-        CurrentProjectPath = projectPath;
-        Status = $"Saved project to {Path.GetFileName(projectPath)}.";
+        try
+        {
+            var project = new DesktopProject(Images.Select(image => image.FilePath).ToList());
+            File.WriteAllText(projectPath, JsonSerializer.Serialize(project, ProjectJsonOptions));
+            CurrentProjectPath = projectPath;
+            Status = $"Saved project to {Path.GetFileName(projectPath)}.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Unable to save project file: {ex.Message}";
+        }
     }
 
     public void LoadProject(string projectPath)
     {
-        var project = JsonSerializer.Deserialize<DesktopProject>(File.ReadAllText(projectPath)) ?? new DesktopProject([]);
-        ClearImages();
-        AddImages(project.Images);
-        CurrentProjectPath = projectPath;
+        try
+        {
+            var project = JsonSerializer.Deserialize<DesktopProject>(File.ReadAllText(projectPath));
+            if (project is null)
+            {
+                throw new InvalidDataException("Project file could not be parsed or is empty.");
+            }
+            ClearImages();
+            AddImages(project.Images);
+            CurrentProjectPath = projectPath;
+            Status = $"{Status} Project loaded.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Unable to load project file: {ex.Message}";
+        }
     }
 
     private void ClearImages()
