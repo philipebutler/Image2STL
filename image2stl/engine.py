@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from urllib import error as urlerror
 from urllib import request as urlrequest
@@ -12,6 +13,7 @@ WARNING_THRESHOLD_SECONDS = 600
 DEFAULT_INPUT_DIMENSIONS_MM = (100.0, 120.0, 80.0)
 MESHY_BASE_URL = "https://api.meshy.ai/v1"
 MESHY_API_KEY_ENV = "MESHY_API_KEY"
+MESHY_TIMEOUT_SECONDS = 600
 
 
 def parse_json_line(line: str) -> dict:
@@ -59,18 +61,20 @@ def _validate_reconstruction(command: dict) -> dict | None:
 
 
 def _run_triposr_local(images: list[str], target: Path) -> dict:
+    """Run TripoSR with the primary capture image; additional captures are reserved for future multi-view tuning."""
     try:
         import torch
         from PIL import Image
         from tsr.system import TSR
-    except Exception as exc:  # pragma: no cover - dependency availability is environment-specific
+    except (ImportError, ModuleNotFoundError) as exc:  # pragma: no cover - dependency availability is environment-specific
         raise RuntimeError("TripoSR dependencies unavailable") from exc
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = TSR.from_pretrained("stabilityai/TripoSR")
     if hasattr(model, "to"):
         model = model.to(device)
-    with Image.open(images[0]) as src_image:
+    primary_image = images[0]  # TripoSR inference currently runs from the primary capture image.
+    with Image.open(primary_image) as src_image:
         image = src_image.convert("RGB")
         scene_codes = model([image], device=device)
     meshes = model.extract_mesh(scene_codes)
@@ -90,6 +94,8 @@ def _read_meshy_api_key(command: dict) -> str | None:
 
 
 def _run_meshy_cloud(images: list[str], target: Path, api_key: str) -> dict:
+    if not all(isinstance(image, str) and image.strip() for image in images):
+        raise ValueError("Meshy image inputs must be non-empty strings")
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = json.dumps({"mode": "image-to-3d", "images": images}).encode("utf-8")
     create_request = urlrequest.Request(
@@ -98,16 +104,27 @@ def _run_meshy_cloud(images: list[str], target: Path, api_key: str) -> dict:
         headers=headers,
         method="POST",
     )
-    with urlrequest.urlopen(create_request, timeout=600) as response:
+    with urlrequest.urlopen(create_request, timeout=MESHY_TIMEOUT_SECONDS) as response:
         task = json.loads(response.read().decode("utf-8"))
     task_id = task.get("id")
     if not task_id:
         raise RuntimeError("Meshy task creation failed")
-    status_request = urlrequest.Request(f"{MESHY_BASE_URL}/tasks/{task_id}", headers=headers, method="GET")
-    with urlrequest.urlopen(status_request, timeout=600) as response:
-        final_task = json.loads(response.read().decode("utf-8"))
-    if final_task.get("status") not in {"completed", "succeeded"}:
-        raise RuntimeError("Meshy task did not complete")
+    timeout_seconds = MESHY_TIMEOUT_SECONDS
+    status_url = f"{MESHY_BASE_URL}/tasks/{task_id}"
+    deadline = time.monotonic() + timeout_seconds
+    final_task: dict = {}
+    while time.monotonic() < deadline:
+        status_request = urlrequest.Request(status_url, headers=headers, method="GET")
+        with urlrequest.urlopen(status_request, timeout=timeout_seconds) as response:
+            final_task = json.loads(response.read().decode("utf-8"))
+        status = final_task.get("status", "").lower()
+        if status in {"completed", "succeeded"}:
+            break
+        if status in {"failed", "error", "cancelled"}:
+            raise RuntimeError("Meshy task failed")
+        time.sleep(5)
+    if final_task.get("status", "").lower() not in {"completed", "succeeded"}:
+        raise RuntimeError("Meshy task timed out")
     model_url = final_task.get("model_url") or final_task.get("modelUrl")
     if not model_url:
         raise RuntimeError("Meshy did not return a model URL")

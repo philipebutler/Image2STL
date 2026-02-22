@@ -12,6 +12,11 @@ from image2stl.engine import calculate_scale_factor, parse_json_line, process_co
 from image2stl.project import create_project, load_project
 
 
+def _write_test_mesh(target: Path, label: str) -> dict:
+    target.write_text(f"o {label}\nv 0 0 0\n", encoding="utf-8")
+    return {"vertices": 1, "faces": 0}
+
+
 class MVPTests(unittest.TestCase):
     def _run_cli(self, args: list[str]) -> tuple[int, list[dict]]:
         stdout = StringIO()
@@ -64,11 +69,7 @@ class MVPTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             output_path = Path(tmp) / "raw.obj"
             with patch("image2stl.engine._run_triposr_local") as run_local:
-                def local_inference(_images, target):
-                    target.write_text("o local\nv 0 0 0\n", encoding="utf-8")
-                    return {"vertices": 1, "faces": 0}
-
-                run_local.side_effect = local_inference
+                run_local.side_effect = lambda _images, target: _write_test_mesh(target, "local")
                 messages = process_command(
                     {
                         "command": "reconstruct",
@@ -104,13 +105,9 @@ class MVPTests(unittest.TestCase):
     def test_cloud_mode_uses_environment_api_key(self):
         with tempfile.TemporaryDirectory() as tmp:
             output_path = Path(tmp) / "raw.obj"
-            with patch.dict(os.environ, {"MESHY_API_KEY": "test-key"}, clear=False):
+            with patch.dict(os.environ, {"MESHY_API_KEY": "test-key"}, clear=True):
                 with patch("image2stl.engine._run_meshy_cloud") as run_cloud:
-                    def cloud_inference(_images, target, _api_key):
-                        target.write_text("o cloud\nv 0 0 0\n", encoding="utf-8")
-                        return {"vertices": 1, "faces": 0}
-
-                    run_cloud.side_effect = cloud_inference
+                    run_cloud.side_effect = lambda _images, target, _api_key: _write_test_mesh(target, "cloud")
                     messages = process_command(
                         {
                             "command": "reconstruct",
@@ -168,13 +165,9 @@ class MVPTests(unittest.TestCase):
                 image.write_text("mock_image_data", encoding="utf-8")
                 image_paths.append(image)
             self._run_cli(["add-images", "--project-dir", str(project_dir), *map(str, image_paths)])
-            with patch.dict(os.environ, {"MESHY_API_KEY": "test-key"}, clear=False):
+            with patch.dict(os.environ, {"MESHY_API_KEY": "test-key"}, clear=True):
                 with patch("image2stl.engine._run_meshy_cloud") as run_cloud:
-                    def cloud_inference(_images, target, _api_key):
-                        target.write_text("o cloud\nv 0 0 0\n", encoding="utf-8")
-                        return {"vertices": 1, "faces": 0}
-
-                    run_cloud.side_effect = cloud_inference
+                    run_cloud.side_effect = lambda _images, target, _api_key: _write_test_mesh(target, "cloud")
                     code, output = self._run_cli(
                         ["reconstruct-project", "--project-dir", str(project_dir), "--mode", "cloud"]
                     )
