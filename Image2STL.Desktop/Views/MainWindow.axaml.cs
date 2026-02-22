@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Image2STL.Desktop.ViewModels;
 
@@ -15,6 +16,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         DragDrop.SetAllowDrop(this, true);
         AddHandler(DragDrop.DragOverEvent, OnDragOver);
+        AddHandler(DragDrop.DragLeaveEvent, OnDragLeave);
         AddHandler(DragDrop.DropEvent, OnDrop);
     }
 
@@ -34,7 +36,7 @@ public partial class MainWindow : Window
             [
                 new FilePickerFileType("Supported Images")
                 {
-                    Patterns = ["*.jpg", "*.jpeg", "*.png", "*.heic", "*.heif"],
+                    Patterns = ["*.jpg", "*.jpeg", "*.png", "*.heic", "*.heif", "*.webp", "*.avif"],
                 },
             ],
         });
@@ -110,14 +112,67 @@ public partial class MainWindow : Window
         }
     }
 
+    private void Generate_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (DataContext is MainWindowViewModel vm)
+        {
+            vm.StartGeneration();
+        }
+    }
+
+    private async void ExportSTL_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel?.StorageProvider is null || DataContext is not MainWindowViewModel vm)
+        {
+            return;
+        }
+
+        var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Export STL",
+            SuggestedFileName = vm.ExportFileName,
+            FileTypeChoices =
+            [
+                new FilePickerFileType("STL Files") { Patterns = ["*.stl"] },
+            ],
+        });
+
+        var exportPath = file?.TryGetLocalPath();
+        if (!string.IsNullOrWhiteSpace(exportPath))
+        {
+            vm.ExportSTL(exportPath);
+        }
+    }
+
+    private void Cancel_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (DataContext is MainWindowViewModel vm)
+        {
+            vm.CancelOperation();
+        }
+    }
+
     private void OnDragOver(object? sender, DragEventArgs e)
     {
-        e.DragEffects = e.DataTransfer.Contains(DataFormat.File) ? DragDropEffects.Copy : DragDropEffects.None;
+        var hasFiles = e.DataTransfer.Contains(DataFormat.File);
+        e.DragEffects = hasFiles ? DragDropEffects.Copy : DragDropEffects.None;
+        if (hasFiles)
+        {
+            DropZone.BorderBrush = new SolidColorBrush(Color.FromRgb(0, 120, 215));
+        }
+        e.Handled = true;
+    }
+
+    private void OnDragLeave(object? sender, DragEventArgs e)
+    {
+        DropZone.BorderBrush = Brushes.Transparent;
         e.Handled = true;
     }
 
     private void OnDrop(object? sender, DragEventArgs e)
     {
+        DropZone.BorderBrush = Brushes.Transparent;
         AddPickedFiles(e.DataTransfer.TryGetFiles() ?? []);
         e.Handled = true;
     }

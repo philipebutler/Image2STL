@@ -1,6 +1,6 @@
 """Image2STL MVP package."""
 
-from .engine import calculate_scale_factor, parse_json_line, process_command
+from .engine import calculate_scale_factor, check_image_quality, parse_json_line, process_command
 from .project import Project, create_project, load_project
 
 __all__ = [
@@ -10,4 +10,5 @@ __all__ = [
     "process_command",
     "parse_json_line",
     "calculate_scale_factor",
+    "check_image_quality",
 ]
