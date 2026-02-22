@@ -1,13 +1,24 @@
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
+from image2stl import cli
 from image2stl.engine import calculate_scale_factor, parse_json_line, process_command
 from image2stl.project import create_project, load_project
 
 
 class MVPTests(unittest.TestCase):
+    def _run_cli(self, args: list[str]) -> tuple[int, list[dict]]:
+        stdout = StringIO()
+        with patch("sys.argv", ["image2stl.cli", *args]), redirect_stdout(stdout):
+            code = cli.main()
+        lines = [line for line in stdout.getvalue().splitlines() if line.strip()]
+        return code, [json.loads(line) for line in lines]
+
     def test_project_serialization_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -92,6 +103,41 @@ class MVPTests(unittest.TestCase):
                 }
             )
             self.assertEqual(result[0]["scaleFactor"], 2.0)
+
+    def test_cli_add_images_updates_project(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            _, project_dir = create_project(base, "WorkflowProject")
+            images = []
+            for index, suffix in enumerate(("jpg", "png", "heic"), start=1):
+                image = base / f"IMG_{index}.{suffix}"
+                image.write_text("x", encoding="utf-8")
+                images.append(image)
+            code, output = self._run_cli(["add-images", "--project-dir", str(project_dir), *map(str, images)])
+            project = load_project(project_dir)
+            self.assertEqual(code, 0)
+            self.assertEqual(output[0]["totalImages"], 3)
+            self.assertEqual(len(project.images), 3)
+
+    def test_cli_reconstruct_project_wires_project_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            _, project_dir = create_project(base, "WorkflowProject")
+            image_paths = []
+            for index in range(3):
+                image = base / f"IMG_{index}.jpg"
+                image.write_text("x", encoding="utf-8")
+                image_paths.append(image)
+            self._run_cli(["add-images", "--project-dir", str(project_dir), *map(str, image_paths)])
+            code, output = self._run_cli(
+                ["reconstruct-project", "--project-dir", str(project_dir), "--mode", "cloud"]
+            )
+            project = load_project(project_dir)
+            self.assertEqual(code, 0)
+            self.assertEqual(project.reconstructionMode, "cloud")
+            self.assertEqual(project.modelPath, "models/raw_reconstruction.obj")
+            self.assertEqual(output[-1]["type"], "success")
+            self.assertTrue((project_dir / project.modelPath).exists())
 
 
 if __name__ == "__main__":
