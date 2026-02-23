@@ -5,7 +5,7 @@ Image2STL converts 3-5 smartphone images into a printable STL workflow with:
 - local reconstruction (TripoSR)
 - cloud reconstruction (Meshy.ai)
 - mesh repair/scaling commands
-- Avalonia desktop image gallery + 3D preview shell
+- PySide6 desktop UI with image gallery + 3D preview
 
 Implementation scope and behavior are defined in `SPEC.md`.
 
@@ -53,26 +53,23 @@ python -m pip install pillow-avif-plugin  # AVIF image support
 export MESHY_API_KEY=your_key_here
 ```
 
-### Desktop app build
+## Desktop UI (PySide6)
+
+### Install UI dependencies
 
 ```bash
-dotnet build Image2STL.Desktop/Image2STL.Desktop.csproj
+python -m pip install -r requirements.txt
 ```
 
-### Packaging targets
+### Launch
 
-Use the included packaging helpers:
-
-- Windows: `Image2STL.Desktop/packaging/build-windows-installer.ps1`
-- macOS: `Image2STL.Desktop/packaging/build-macos-installer.sh`
-
-## Desktop UI
-
-The Avalonia desktop application provides a visual workflow for the full image-to-STL pipeline.
+```bash
+python main.py
+```
 
 ### Features
 
-- **Image gallery** — Drag-and-drop or file picker to load 3-5 images. Thumbnails are displayed for each image; HEIC/HEIF files use a placeholder thumbnail.
+- **Image gallery** — Drag-and-drop or file picker to load 3-5 images. Thumbnails are displayed for each image; HEIC/HEIF files show a placeholder.
 - **3D preview** — Interactive wireframe viewer with mouse-drag rotation and scroll-wheel zoom.
 - **Reconstruction mode** — Radio button toggle between Local (TripoSR) and Cloud (Meshy.ai) modes.
 - **Scale controls** — Numeric input for target size in millimeters and dropdown for axis selection (longest/width/height/depth).
@@ -81,6 +78,7 @@ The Avalonia desktop application provides a visual workflow for the full image-t
 - **Cancel** — Stops a running reconstruction operation.
 - **Progress & warnings** — Real-time progress bar, processing time warnings (>10 min), and user-friendly error messages from the engine.
 - **Drag-and-drop feedback** — Blue border highlight on the drop zone when files are dragged over the window.
+- **Settings** — Configure default scale, Meshy API key, and window preferences.
 
 ### Keyboard shortcuts
 
@@ -90,7 +88,7 @@ The Avalonia desktop application provides a visual workflow for the full image-t
 | Ctrl+O | Open Project |
 | Ctrl+S | Save Project |
 | Ctrl+I | Add Images |
-| Ctrl+G | Generate 3D Model |
+| Ctrl+Q | Quit |
 
 ### Supported image formats
 
