@@ -126,13 +126,46 @@ class MVPTests(unittest.TestCase):
                 statuses,
                 [
                     "Loading images...",
-                    "Running AI reconstruction...",
+                    "Checking Python dependencies...",
+                    "Checking TripoSR model cache...",
+                    "Loading/downloading TripoSR model weights...",
                     "Repairing mesh...",
                     "Generating preview...",
                 ],
             )
             self.assertEqual(messages[-1]["type"], "success")
             self.assertTrue(output_path.exists())
+
+    def test_check_environment_reports_local_dependencies(self):
+        result = process_command({"command": "check_environment", "mode": "local"})
+        self.assertEqual(result[0]["type"], "success")
+        self.assertEqual(result[0]["command"], "check_environment")
+        self.assertIn("python", result[0])
+        self.assertIn("local", result[0])
+        self.assertIn("dependencies", result[0]["local"])
+        self.assertIn("model", result[0])
+
+    def test_reconstruct_returns_dependency_error_when_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "raw.obj"
+            with patch("image2stl.engine._ensure_local_dependencies") as ensure_local:
+                from image2stl.engine import MissingDependenciesError
+
+                ensure_local.side_effect = MissingDependenciesError([
+                    {"module": "torch", "package": "torch"},
+                ])
+                messages = process_command(
+                    {
+                        "command": "reconstruct",
+                        "mode": "local",
+                        "images": ["a.jpg", "b.png", "c.heic"],
+                        "outputPath": str(output_path),
+                    }
+                )
+
+        self.assertEqual(messages[0]["type"], "error")
+        self.assertEqual(messages[0]["errorCode"], "PYTHON_DEPENDENCIES_MISSING")
+        self.assertEqual(messages[0]["missingDependencies"][0]["module"], "torch")
 
     def test_cloud_mode_requires_api_key(self):
         result = process_command(

@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import importlib
+import importlib.util
+import importlib.metadata
 import threading
 import time
 import contextvars
+import sys
 from pathlib import Path
 from urllib import error as urlerror
 from urllib import request as urlrequest
@@ -57,6 +61,109 @@ _CANCEL_LOCK = threading.Lock()
 
 class OperationCancelledError(RuntimeError):
     pass
+
+
+class MissingDependenciesError(RuntimeError):
+    def __init__(self, missing: list[dict]):
+        self.missing = missing
+        names = ", ".join(item["module"] for item in missing)
+        super().__init__(f"Missing Python dependencies: {names}")
+
+
+class ModelWeightsUnavailableError(RuntimeError):
+    pass
+
+
+LOCAL_DEPENDENCY_SPEC = [
+    {"module": "torch", "package": "torch", "required": True},
+    {"module": "PIL", "package": "Pillow", "required": True},
+    {
+        "module": "tsr",
+        "package": "TripoSR",
+        "required": True,
+        "installTarget": "__TRIPOSR_SOURCE_CHECKOUT__",
+    },
+    {"module": "transformers", "package": "transformers", "required": True},
+    {"module": "huggingface_hub", "package": "huggingface-hub", "required": True},
+    {"module": "numpy", "package": "numpy", "required": False},
+    {"module": "pillow_heif", "package": "pillow-heif", "required": False},
+    {"module": "pillow_avif", "package": "pillow-avif-plugin", "required": False},
+]
+
+
+def _get_package_version(package_name: str) -> str | None:
+    try:
+        return importlib.metadata.version(package_name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def _collect_local_dependency_report() -> dict:
+    dependencies: list[dict] = []
+    missing: list[dict] = []
+    all_required_available = True
+
+    for spec in LOCAL_DEPENDENCY_SPEC:
+        module_name = spec["module"]
+        package_name = spec["package"]
+        install_target = spec.get("installTarget", package_name)
+        required = bool(spec["required"])
+        module_spec = importlib.util.find_spec(module_name)
+        installed = module_spec is not None
+        version = _get_package_version(package_name) if installed else None
+        dependency = {
+            "module": module_name,
+            "package": package_name,
+            "installTarget": install_target,
+            "required": required,
+            "installed": installed,
+            "version": version,
+        }
+        dependencies.append(dependency)
+        if required and not installed:
+            all_required_available = False
+            missing.append({"module": module_name, "package": package_name, "installTarget": install_target})
+
+    return {
+        "dependencies": dependencies,
+        "missing": missing,
+        "ok": all_required_available,
+    }
+
+
+def _ensure_local_dependencies() -> dict:
+    report = _collect_local_dependency_report()
+    if not report["ok"]:
+        raise MissingDependenciesError(report["missing"])
+    return report
+
+
+def _detect_triposr_cache_state(repo_id: str = "stabilityai/TripoSR") -> dict:
+    state = {
+        "repoId": repo_id,
+        "cacheCheckSupported": False,
+        "cacheStatusBeforeLoad": "unknown",
+        "downloadLikelyRequired": None,
+    }
+    try:
+        from huggingface_hub import snapshot_download
+        from huggingface_hub.errors import LocalEntryNotFoundError
+    except (ImportError, ModuleNotFoundError):
+        return state
+
+    state["cacheCheckSupported"] = True
+    try:
+        snapshot_download(repo_id=repo_id, local_files_only=True)
+        state["cacheStatusBeforeLoad"] = "cached"
+        state["downloadLikelyRequired"] = False
+    except LocalEntryNotFoundError:
+        state["cacheStatusBeforeLoad"] = "not_cached"
+        state["downloadLikelyRequired"] = True
+    except Exception:
+        state["cacheStatusBeforeLoad"] = "unknown"
+        state["downloadLikelyRequired"] = None
+
+    return state
 
 
 def parse_json_line(line: str) -> dict:
@@ -189,6 +296,7 @@ def check_image_quality(image_paths: list[str]) -> list[dict]:
 
 def _run_triposr_local(images: list[str], target: Path) -> dict:
     """Run TripoSR with the primary capture image; additional captures are reserved for future multi-view tuning."""
+    dependency_report = _ensure_local_dependencies()
     try:
         import torch
         from PIL import Image
@@ -197,9 +305,13 @@ def _run_triposr_local(images: list[str], target: Path) -> dict:
         raise RuntimeError("TripoSR dependencies unavailable") from exc
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    cache_state = _detect_triposr_cache_state()
     if _is_operation_cancelled():
         raise OperationCancelledError()
-    model = TSR.from_pretrained("stabilityai/TripoSR")
+    try:
+        model = TSR.from_pretrained("stabilityai/TripoSR")
+    except Exception as exc:
+        raise ModelWeightsUnavailableError("Unable to load TripoSR model weights") from exc
     if hasattr(model, "to"):
         model = model.to(device)
     primary_image = images[0]  # TripoSR inference currently runs from the primary capture image.
@@ -216,6 +328,14 @@ def _run_triposr_local(images: list[str], target: Path) -> dict:
     return {
         "vertices": len(getattr(mesh, "vertices", [])),
         "faces": len(getattr(mesh, "faces", [])),
+        "runtime": {
+            "device": device,
+            "dependenciesOk": dependency_report["ok"],
+        },
+        "model": {
+            **cache_state,
+            "repoId": "stabilityai/TripoSR",
+        },
     }
 
 
@@ -279,10 +399,37 @@ def process_command(command: dict) -> list[dict]:
         _mark_operation_cancelled(cancel_target)
         return [{"type": "success", "command": "cancel", "operationId": cancel_target}]
     output = []
+    if cmd == "check_environment":
+        mode = command.get("mode", "local")
+        response = {
+            "type": "success",
+            "command": "check_environment",
+            "mode": mode,
+            "python": {
+                "version": sys.version.split()[0],
+                "executable": sys.executable,
+            },
+        }
+        if mode == "local":
+            report = _collect_local_dependency_report()
+            response["local"] = {
+                "ok": report["ok"],
+                "dependencies": report["dependencies"],
+                "missing": report["missing"],
+            }
+            response["model"] = _detect_triposr_cache_state()
+        elif mode == "cloud":
+            response["cloud"] = {
+                "apiKeyConfigured": bool(_read_meshy_api_key(command)),
+                "apiKeyEnvVar": command.get("apiKeyEnvVar", MESHY_API_KEY_ENV),
+            }
+        return [response]
+
     if cmd == "reconstruct":
         validation_error = _validate_reconstruction(command)
         if validation_error:
             return [validation_error]
+        mode = command.get("mode", "local")
         op_id = str(operation_id) if operation_id else None
         token = _CURRENT_OPERATION_ID.set(op_id)
         def _cancelled_response() -> list[dict]:
@@ -291,7 +438,12 @@ def process_command(command: dict) -> list[dict]:
         output.append(_status(0.1, "Loading images...", estimated=120))
         if _is_operation_cancelled(op_id):
             return _cancelled_response()
-        output.append(_status(0.5, "Running AI reconstruction...", estimated=480))
+        if mode == "local":
+            output.append(_status(0.25, "Checking Python dependencies...", estimated=20))
+            output.append(_status(0.35, "Checking TripoSR model cache...", estimated=20))
+            output.append(_status(0.5, "Loading/downloading TripoSR model weights...", estimated=480))
+        else:
+            output.append(_status(0.5, "Running cloud reconstruction...", estimated=480))
         if _is_operation_cancelled(op_id):
             return _cancelled_response()
         output.append(_status(0.8, "Repairing mesh...", estimated=90))
@@ -300,7 +452,6 @@ def process_command(command: dict) -> list[dict]:
         output.append(_status(0.95, "Generating preview...", estimated=20))
         target = Path(command["outputPath"])
         target.parent.mkdir(parents=True, exist_ok=True)
-        mode = command.get("mode", "local")
         try:
             if mode == "cloud":
                 api_key = _read_meshy_api_key(command)
@@ -312,6 +463,14 @@ def process_command(command: dict) -> list[dict]:
         except OperationCancelledError:
             _cleanup_operation(token, op_id)
             return [make_error("reconstruct", "OPERATION_CANCELLED")]
+        except MissingDependenciesError as exc:
+            _cleanup_operation(token, op_id)
+            error = make_error("reconstruct", "PYTHON_DEPENDENCIES_MISSING")
+            error["missingDependencies"] = exc.missing
+            return [error]
+        except ModelWeightsUnavailableError:
+            _cleanup_operation(token, op_id)
+            return [make_error("reconstruct", "MODEL_WEIGHTS_UNAVAILABLE")]
         except (urlerror.URLError, RuntimeError, ValueError):
             error_code = "API_ERROR" if mode == "cloud" else "RECONSTRUCTION_FAILED"
             _cleanup_operation(token, op_id)

@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows.Input;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.Input;
@@ -130,11 +132,63 @@ public class MainWindowViewModel : ViewModelBase
         set => SetProperty(ref _errorSuggestion, value);
     }
 
+    private bool _showEnvironmentStatus;
+    public bool ShowEnvironmentStatus
+    {
+        get => _showEnvironmentStatus;
+        set => SetProperty(ref _showEnvironmentStatus, value);
+    }
+
+    private string _environmentSummary = "";
+    public string EnvironmentSummary
+    {
+        get => _environmentSummary;
+        set => SetProperty(ref _environmentSummary, value);
+    }
+
+    private string _environmentDetails = "";
+    public string EnvironmentDetails
+    {
+        get => _environmentDetails;
+        set => SetProperty(ref _environmentDetails, value);
+    }
+
+    private bool _isCheckingEnvironment;
+    public bool IsCheckingEnvironment
+    {
+        get => _isCheckingEnvironment;
+        set => SetProperty(ref _isCheckingEnvironment, value);
+    }
+
+    private string _cloudApiKey = "";
+    public string CloudApiKey
+    {
+        get => _cloudApiKey;
+        set => SetProperty(ref _cloudApiKey, value);
+    }
+
+    private string _cloudApiKeyEnvVar = "MESHY_API_KEY";
+    public string CloudApiKeyEnvVar
+    {
+        get => _cloudApiKeyEnvVar;
+        set => SetProperty(ref _cloudApiKeyEnvVar, string.IsNullOrWhiteSpace(value) ? "MESHY_API_KEY" : value.Trim());
+    }
+
+    private string _pythonExecutable = "python3";
+    public string PythonExecutable
+    {
+        get => _pythonExecutable;
+        set => SetProperty(ref _pythonExecutable, string.IsNullOrWhiteSpace(value) ? "python3" : value.Trim());
+    }
+
     private string? _currentOperationId;
+    private Process? _activeEngineProcess;
 
     public ICommand NewProjectCommand { get; }
     public ICommand SaveProjectCommand { get; }
     public ICommand GenerateCommand { get; }
+    public ICommand CheckLocalSetupCommand { get; }
+    public ICommand CheckCloudSetupCommand { get; }
 
     public string ExportFileName =>
         string.IsNullOrWhiteSpace(CurrentProjectPath)
@@ -151,7 +205,9 @@ public class MainWindowViewModel : ViewModelBase
                 SaveProject(CurrentProjectPath);
             }
         });
-        GenerateCommand = new RelayCommand(StartGeneration);
+        GenerateCommand = new AsyncRelayCommand(GenerateAsync);
+        CheckLocalSetupCommand = new AsyncRelayCommand(CheckLocalSetupAsync);
+        CheckCloudSetupCommand = new AsyncRelayCommand(CheckCloudSetupAsync);
     }
 
     public void AddImages(IEnumerable<string> filePaths)
@@ -221,7 +277,10 @@ public class MainWindowViewModel : ViewModelBase
                 Images.Select(image => image.FilePath).ToList(),
                 IsLocalMode ? "local" : "cloud",
                 (double)ScaleMm,
-                ScaleAxis);
+                ScaleAxis,
+                string.IsNullOrWhiteSpace(CloudApiKey) ? null : CloudApiKey,
+                string.IsNullOrWhiteSpace(CloudApiKeyEnvVar) ? "MESHY_API_KEY" : CloudApiKeyEnvVar,
+                string.IsNullOrWhiteSpace(PythonExecutable) ? "python3" : PythonExecutable);
             File.WriteAllText(projectPath, JsonSerializer.Serialize(project, ProjectJsonOptions));
             CurrentProjectPath = projectPath;
             Status = $"Saved project to {Path.GetFileName(projectPath)}.";
@@ -255,6 +314,18 @@ public class MainWindowViewModel : ViewModelBase
             {
                 ScaleAxis = project.ScaleAxis;
             }
+            if (!string.IsNullOrWhiteSpace(project.CloudApiKey))
+            {
+                CloudApiKey = project.CloudApiKey;
+            }
+            if (!string.IsNullOrWhiteSpace(project.CloudApiKeyEnvVar))
+            {
+                CloudApiKeyEnvVar = project.CloudApiKeyEnvVar;
+            }
+            if (!string.IsNullOrWhiteSpace(project.PythonExecutable))
+            {
+                PythonExecutable = project.PythonExecutable;
+            }
 
             CurrentProjectPath = projectPath;
             Status = $"{Status} Project loaded.";
@@ -287,6 +358,100 @@ public class MainWindowViewModel : ViewModelBase
         Status = $"Generating 3D model ({(IsLocalMode ? "local" : "cloud")} mode)...";
     }
 
+    public async Task GenerateAsync()
+    {
+        StartGeneration();
+        if (HasError)
+        {
+            return;
+        }
+
+        var outputPath = Path.Combine(Path.GetTempPath(), $"image2stl-{Guid.NewGuid():N}.obj");
+        var mode = IsLocalMode ? "local" : "cloud";
+        var payload = JsonSerializer.Serialize(new
+        {
+            command = "reconstruct",
+            mode,
+            images = Images.Select(image => image.FilePath).ToList(),
+            outputPath,
+            operationId = _currentOperationId,
+            apiKey = string.IsNullOrWhiteSpace(CloudApiKey) ? null : CloudApiKey,
+            apiKeyEnvVar = string.IsNullOrWhiteSpace(CloudApiKeyEnvVar) ? "MESHY_API_KEY" : CloudApiKeyEnvVar,
+        });
+
+        try
+        {
+            var repoRoot = FindRepositoryRoot();
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = GetPythonExecutable(),
+                WorkingDirectory = repoRoot,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            startInfo.ArgumentList.Add("-m");
+            startInfo.ArgumentList.Add("image2stl.cli");
+            startInfo.ArgumentList.Add("run");
+            startInfo.ArgumentList.Add("--json");
+            startInfo.ArgumentList.Add(payload);
+
+            using var process = Process.Start(startInfo);
+            if (process is null)
+            {
+                IsProcessing = false;
+                ShowError("Unable to start Python engine", $"Ensure '{GetPythonExecutable()}' is installed and on PATH.");
+                return;
+            }
+
+            _activeEngineProcess = process;
+            var parsedAny = false;
+            while (true)
+            {
+                var line = await process.StandardOutput.ReadLineAsync();
+                if (line is null)
+                {
+                    break;
+                }
+                if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("{"))
+                {
+                    continue;
+                }
+
+                HandleEngineMessage(line);
+                parsedAny = true;
+            }
+
+            var stderr = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            if (!parsedAny)
+            {
+                IsProcessing = false;
+                ShowError(
+                    "Python engine did not return status messages",
+                    string.IsNullOrWhiteSpace(stderr) ? "No diagnostic output was produced." : stderr.Trim());
+                return;
+            }
+
+            if (process.ExitCode != 0 && !HasError)
+            {
+                IsProcessing = false;
+                ShowError("Reconstruction failed", string.IsNullOrWhiteSpace(stderr) ? "Python engine exited with an error." : stderr.Trim());
+            }
+        }
+        catch (Exception ex)
+        {
+            IsProcessing = false;
+            ShowError("Reconstruction failed", ex.Message);
+        }
+        finally
+        {
+            _activeEngineProcess = null;
+        }
+    }
+
     public void ExportSTL(string exportPath)
     {
         try
@@ -301,11 +466,195 @@ public class MainWindowViewModel : ViewModelBase
 
     public void CancelOperation()
     {
+        if (_activeEngineProcess is not null && !_activeEngineProcess.HasExited)
+        {
+            try
+            {
+                _activeEngineProcess.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // Ignore process termination errors
+            }
+        }
+
         IsProcessing = false;
         Progress = 0;
         ProgressText = "";
         ShowTimeWarning = false;
         Status = "Operation cancelled.";
+    }
+
+    public async Task CheckLocalSetupAsync()
+    {
+        if (IsCheckingEnvironment)
+        {
+            return;
+        }
+
+        IsCheckingEnvironment = true;
+        ShowEnvironmentStatus = true;
+        EnvironmentSummary = "Checking local Python setup...";
+        EnvironmentDetails = "Running image2stl check_environment command.";
+        Status = "Checking local setup...";
+        ClearError();
+
+        try
+        {
+            var repoRoot = FindRepositoryRoot();
+            var payload = JsonSerializer.Serialize(new { command = "check_environment", mode = "local" });
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = GetPythonExecutable(),
+                WorkingDirectory = repoRoot,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            startInfo.ArgumentList.Add("-m");
+            startInfo.ArgumentList.Add("image2stl.cli");
+            startInfo.ArgumentList.Add("run");
+            startInfo.ArgumentList.Add("--json");
+            startInfo.ArgumentList.Add(payload);
+
+            using var process = Process.Start(startInfo);
+            if (process is null)
+            {
+                ShowError("Unable to start Python process", $"Ensure '{GetPythonExecutable()}' is installed and on PATH.");
+                EnvironmentSummary = "Setup check failed.";
+                EnvironmentDetails = $"Could not start {GetPythonExecutable()} process.";
+                return;
+            }
+
+            var stdout = await process.StandardOutput.ReadToEndAsync();
+            var stderr = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            var parsedAny = false;
+            foreach (var line in stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!line.StartsWith("{"))
+                {
+                    continue;
+                }
+
+                HandleEngineMessage(line);
+                parsedAny = true;
+            }
+
+            if (!parsedAny)
+            {
+                EnvironmentSummary = "Setup check did not return JSON output.";
+                EnvironmentDetails = string.IsNullOrWhiteSpace(stderr)
+                    ? "No diagnostic output was produced."
+                    : stderr.Trim();
+            }
+
+            if (process.ExitCode != 0)
+            {
+                ShowError("Python setup check failed", string.IsNullOrWhiteSpace(stderr) ? "Command exited with an error." : stderr.Trim());
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError("Python setup check failed", ex.Message);
+            EnvironmentSummary = "Setup check failed.";
+            EnvironmentDetails = ex.Message;
+        }
+        finally
+        {
+            IsCheckingEnvironment = false;
+        }
+    }
+
+    public async Task CheckCloudSetupAsync()
+    {
+        if (IsCheckingEnvironment)
+        {
+            return;
+        }
+
+        IsCheckingEnvironment = true;
+        ShowEnvironmentStatus = true;
+        EnvironmentSummary = "Checking cloud API setup...";
+        EnvironmentDetails = "Validating Meshy.ai key configuration.";
+        Status = "Checking cloud setup...";
+        ClearError();
+
+        try
+        {
+            var repoRoot = FindRepositoryRoot();
+            var payload = JsonSerializer.Serialize(new
+            {
+                command = "check_environment",
+                mode = "cloud",
+                apiKey = string.IsNullOrWhiteSpace(CloudApiKey) ? null : CloudApiKey,
+                apiKeyEnvVar = string.IsNullOrWhiteSpace(CloudApiKeyEnvVar) ? "MESHY_API_KEY" : CloudApiKeyEnvVar,
+            });
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = GetPythonExecutable(),
+                WorkingDirectory = repoRoot,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            startInfo.ArgumentList.Add("-m");
+            startInfo.ArgumentList.Add("image2stl.cli");
+            startInfo.ArgumentList.Add("run");
+            startInfo.ArgumentList.Add("--json");
+            startInfo.ArgumentList.Add(payload);
+
+            using var process = Process.Start(startInfo);
+            if (process is null)
+            {
+                ShowError("Unable to start Python process", $"Ensure '{GetPythonExecutable()}' is installed and on PATH.");
+                EnvironmentSummary = "Cloud setup check failed.";
+                EnvironmentDetails = $"Could not start {GetPythonExecutable()} process.";
+                return;
+            }
+
+            var stdout = await process.StandardOutput.ReadToEndAsync();
+            var stderr = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            var parsedAny = false;
+            foreach (var line in stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!line.StartsWith("{"))
+                {
+                    continue;
+                }
+
+                HandleEngineMessage(line);
+                parsedAny = true;
+            }
+
+            if (!parsedAny)
+            {
+                EnvironmentSummary = "Cloud setup check did not return JSON output.";
+                EnvironmentDetails = string.IsNullOrWhiteSpace(stderr)
+                    ? "No diagnostic output was produced."
+                    : stderr.Trim();
+            }
+
+            if (process.ExitCode != 0)
+            {
+                ShowError("Cloud setup check failed", string.IsNullOrWhiteSpace(stderr) ? "Command exited with an error." : stderr.Trim());
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError("Cloud setup check failed", ex.Message);
+            EnvironmentSummary = "Cloud setup check failed.";
+            EnvironmentDetails = ex.Message;
+        }
+        finally
+        {
+            IsCheckingEnvironment = false;
+        }
     }
 
     public void HandleEngineMessage(string json)
@@ -315,6 +664,9 @@ public class MainWindowViewModel : ViewModelBase
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
             var type = root.GetProperty("type").GetString();
+            var command = root.TryGetProperty("command", out var commandProp)
+                ? commandProp.GetString() ?? string.Empty
+                : string.Empty;
 
             if (type == "progress")
             {
@@ -337,13 +689,47 @@ public class MainWindowViewModel : ViewModelBase
                         ShowTimeWarning = false;
                     }
                 }
+
+                if (ProgressText.Contains("TripoSR model", StringComparison.OrdinalIgnoreCase)
+                    || ProgressText.Contains("downloading", StringComparison.OrdinalIgnoreCase))
+                {
+                    ShowEnvironmentStatus = true;
+                    EnvironmentSummary = "Model status: local TripoSR load/download in progress";
+                    EnvironmentDetails = ProgressText;
+                }
             }
             else if (type == "success")
             {
-                IsProcessing = false;
-                Progress = 100;
-                ShowTimeWarning = false;
-                Status = "Reconstruction complete. Ready for export.";
+                if (command == "check_environment")
+                {
+                    ApplyEnvironmentCheckStatus(root);
+                    Status = root.TryGetProperty("mode", out var modeProp) && modeProp.GetString() == "cloud"
+                        ? "Cloud setup check complete."
+                        : "Local setup check complete.";
+                }
+                else
+                {
+                    IsProcessing = false;
+                    Progress = 100;
+                    ShowTimeWarning = false;
+                    if (root.TryGetProperty("stats", out var stats)
+                        && stats.TryGetProperty("model", out var model)
+                        && model.TryGetProperty("cacheStatusBeforeLoad", out var cacheStatusElement))
+                    {
+                        var cacheStatus = cacheStatusElement.GetString() ?? "unknown";
+                        ShowEnvironmentStatus = true;
+                        EnvironmentSummary = cacheStatus switch
+                        {
+                            "cached" => "Model status: TripoSR already cached",
+                            "not_cached" => "Model status: first-run download was required",
+                            _ => "Model status: cache state unknown",
+                        };
+                        EnvironmentDetails = model.TryGetProperty("downloadLikelyRequired", out var dl)
+                            ? $"cacheStatusBeforeLoad={cacheStatus}, downloadLikelyRequired={dl}"
+                            : $"cacheStatusBeforeLoad={cacheStatus}";
+                    }
+                    Status = "Reconstruction complete. Ready for export.";
+                }
             }
             else if (type == "error")
             {
@@ -351,6 +737,68 @@ public class MainWindowViewModel : ViewModelBase
                 ShowTimeWarning = false;
                 var message = root.TryGetProperty("message", out var msgProp) ? msgProp.GetString() ?? "Unknown error" : "Unknown error";
                 var suggestion = root.TryGetProperty("suggestion", out var sugProp) ? sugProp.GetString() ?? "" : "";
+                if (root.TryGetProperty("missingDependencies", out var missing) && missing.ValueKind == JsonValueKind.Array)
+                {
+                    var missingPackages = new List<string>();
+                    var installTargets = new List<string>();
+                    var requiresTripoSrSourceSetup = false;
+                    foreach (var item in missing.EnumerateArray())
+                    {
+                        var moduleName = item.TryGetProperty("module", out var moduleProp)
+                            ? moduleProp.GetString()
+                            : null;
+                        if (item.TryGetProperty("package", out var package))
+                        {
+                            var packageName = package.GetString();
+                            if (!string.IsNullOrWhiteSpace(packageName))
+                            {
+                                missingPackages.Add(packageName);
+                            }
+                        }
+                        var installTarget = item.TryGetProperty("installTarget", out var targetProp)
+                            ? targetProp.GetString()
+                            : null;
+                        if (installTarget == "__TRIPOSR_SOURCE_CHECKOUT__" || moduleName == "tsr")
+                        {
+                            requiresTripoSrSourceSetup = true;
+                            continue;
+                        }
+                        if (!string.IsNullOrWhiteSpace(installTarget))
+                        {
+                            installTargets.Add(installTarget);
+                        }
+                    }
+
+                    if (missingPackages.Count > 0)
+                    {
+                        suggestion = string.IsNullOrWhiteSpace(suggestion)
+                            ? $"Missing packages: {string.Join(", ", missingPackages)}"
+                            : $"{suggestion} Missing packages: {string.Join(", ", missingPackages)}";
+                        if (installTargets.Count > 0)
+                        {
+                            suggestion = $"{suggestion} Install with: {GetPythonExecutable()} -m pip install {string.Join(" ", installTargets)}";
+                        }
+                        if (requiresTripoSrSourceSetup)
+                        {
+                            suggestion = $"{suggestion} TripoSR uses source checkout. Run: ./scripts/setup-macos.sh (macOS) or scripts/setup-windows.ps1 (Windows).";
+                        }
+                        ShowEnvironmentStatus = true;
+                        EnvironmentSummary = "Local setup issue detected";
+                        var detailLines = new List<string>
+                        {
+                            $"Missing required packages: {string.Join(", ", missingPackages)}"
+                        };
+                        if (installTargets.Count > 0)
+                        {
+                            detailLines.Add($"Run: {GetPythonExecutable()} -m pip install {string.Join(" ", installTargets)}");
+                        }
+                        if (requiresTripoSrSourceSetup)
+                        {
+                            detailLines.Add("TripoSR requires source checkout wiring; run setup script to configure .vendor/TripoSR and .pth linkage.");
+                        }
+                        EnvironmentDetails = string.Join("\n", detailLines);
+                    }
+                }
                 ShowError(message, suggestion);
             }
         }
@@ -358,6 +806,124 @@ public class MainWindowViewModel : ViewModelBase
         {
             // Ignore malformed JSON messages from the engine
         }
+    }
+
+    private void ApplyEnvironmentCheckStatus(JsonElement root)
+    {
+        ShowEnvironmentStatus = true;
+
+        var mode = root.TryGetProperty("mode", out var modeProp) ? modeProp.GetString() ?? "local" : "local";
+        var summary = mode == "cloud" ? "Cloud setup check complete." : "Local setup check complete.";
+        var details = new List<string>();
+
+        if (root.TryGetProperty("python", out var python))
+        {
+            var pyVersion = python.TryGetProperty("version", out var versionProp) ? versionProp.GetString() : "unknown";
+            var pyExe = python.TryGetProperty("executable", out var exeProp) ? exeProp.GetString() : "unknown";
+            details.Add($"Python {pyVersion} ({pyExe})");
+        }
+
+        if (root.TryGetProperty("local", out var local))
+        {
+            var localOk = local.TryGetProperty("ok", out var okProp) && okProp.GetBoolean();
+            summary = localOk ? "Local setup: ready" : "Local setup: missing required dependencies";
+
+            if (local.TryGetProperty("missing", out var missing) && missing.ValueKind == JsonValueKind.Array)
+            {
+                var missingPackages = new List<string>();
+                var installTargets = new List<string>();
+                var requiresTripoSrSourceSetup = false;
+                foreach (var item in missing.EnumerateArray())
+                {
+                    var moduleName = item.TryGetProperty("module", out var moduleProp)
+                        ? moduleProp.GetString()
+                        : null;
+                    if (item.TryGetProperty("package", out var packageProp))
+                    {
+                        var packageName = packageProp.GetString();
+                        if (!string.IsNullOrWhiteSpace(packageName))
+                        {
+                            missingPackages.Add(packageName);
+                        }
+                    }
+                    var installTarget = item.TryGetProperty("installTarget", out var targetProp)
+                        ? targetProp.GetString()
+                        : null;
+                    if (installTarget == "__TRIPOSR_SOURCE_CHECKOUT__" || moduleName == "tsr")
+                    {
+                        requiresTripoSrSourceSetup = true;
+                        continue;
+                    }
+                    if (!string.IsNullOrWhiteSpace(installTarget))
+                    {
+                        installTargets.Add(installTarget);
+                    }
+                }
+
+                if (missingPackages.Count > 0)
+                {
+                    details.Add($"Missing required packages: {string.Join(", ", missingPackages)}");
+                    if (installTargets.Count > 0)
+                    {
+                        details.Add($"Install with: {GetPythonExecutable()} -m pip install {string.Join(" ", installTargets)}");
+                    }
+                    if (requiresTripoSrSourceSetup)
+                    {
+                        details.Add("TripoSR is source-only; run setup script to configure local source checkout linkage.");
+                    }
+                }
+            }
+        }
+
+        if (root.TryGetProperty("cloud", out var cloud))
+        {
+            var configured = cloud.TryGetProperty("apiKeyConfigured", out var configuredProp) && configuredProp.GetBoolean();
+            var envVar = cloud.TryGetProperty("apiKeyEnvVar", out var envVarProp)
+                ? envVarProp.GetString() ?? "MESHY_API_KEY"
+                : "MESHY_API_KEY";
+            summary = configured ? "Cloud setup: API key configured" : "Cloud setup: API key missing";
+            details.Add(configured
+                ? "Meshy.ai API key is available for cloud mode."
+                : "No Meshy.ai API key found. Enter a key or set the environment variable.");
+            details.Add($"API key environment variable: {envVar}");
+        }
+
+        if (root.TryGetProperty("model", out var model))
+        {
+            var cache = model.TryGetProperty("cacheStatusBeforeLoad", out var cacheProp)
+                ? cacheProp.GetString() ?? "unknown"
+                : "unknown";
+            var download = model.TryGetProperty("downloadLikelyRequired", out var downloadProp)
+                ? downloadProp.ToString()
+                : "unknown";
+            details.Add($"TripoSR cache: {cache}; first-run download likely: {download}");
+        }
+
+        EnvironmentSummary = summary;
+        EnvironmentDetails = string.Join("\n", details);
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current is not null)
+        {
+            var hasEngine = Directory.Exists(Path.Combine(current.FullName, "image2stl"));
+            var hasReadme = File.Exists(Path.Combine(current.FullName, "README.md"));
+            if (hasEngine && hasReadme)
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        return Directory.GetCurrentDirectory();
+    }
+
+    private string GetPythonExecutable()
+    {
+        return string.IsNullOrWhiteSpace(PythonExecutable) ? "python3" : PythonExecutable.Trim();
     }
 
     private void ShowError(string message, string suggestion)
@@ -422,4 +988,7 @@ public record DesktopProject(
     List<string> Images,
     string ReconstructionMode = "local",
     double ScaleMm = 150.0,
-    string ScaleAxis = "longest");
+    string ScaleAxis = "longest",
+    string? CloudApiKey = null,
+    string CloudApiKeyEnvVar = "MESHY_API_KEY",
+    string PythonExecutable = "python3");

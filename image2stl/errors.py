@@ -17,6 +17,14 @@ ERROR_DEFINITIONS = {
         "message": "3D reconstruction failed",
         "suggestion": "Try different images or cloud mode",
     },
+    "PYTHON_DEPENDENCIES_MISSING": {
+        "message": "Required Python libraries are missing",
+        "suggestion": "Install required local-mode dependencies and retry",
+    },
+    "MODEL_WEIGHTS_UNAVAILABLE": {
+        "message": "Could not load TripoSR model weights",
+        "suggestion": "Ensure internet access and enough disk space for first-run model download",
+    },
     "API_ERROR": {
         "message": "Cloud service unavailable",
         "suggestion": "Try local mode or retry later",
