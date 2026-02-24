@@ -70,22 +70,30 @@ class ReconstructionEngine:
             command["apiKey"] = api_key
 
         def _run():
-            messages = process_command(command)
-            for msg in messages:
-                msg_type = msg.get("type")
-                if msg_type == "progress":
-                    if on_progress:
-                        on_progress(
-                            msg.get("progress", 0.0),
-                            msg.get("status", ""),
-                            msg.get("estimatedSecondsRemaining"),
-                        )
-                elif msg_type == "success":
-                    if on_success:
-                        on_success(msg.get("outputPath", ""), msg.get("stats", {}))
-                elif msg_type == "error":
-                    if on_error:
-                        on_error(msg.get("errorCode", "UNKNOWN_ERROR"), msg.get("message", ""))
+            try:
+                messages = process_command(command)
+                for msg in messages:
+                    msg_type = msg.get("type")
+                    if msg_type == "progress":
+                        if on_progress:
+                            on_progress(
+                                msg.get("progress", 0.0),
+                                msg.get("status", ""),
+                                msg.get("estimatedSecondsRemaining"),
+                            )
+                    elif msg_type == "success":
+                        if on_success:
+                            on_success(msg.get("outputPath", ""), msg.get("stats", {}))
+                    elif msg_type == "error":
+                        if on_error:
+                            on_error(
+                                msg.get("errorCode", "UNKNOWN_ERROR"),
+                                msg.get("message", ""),
+                            )
+            finally:
+                # Clear thread and operation ID when the reconstruction finishes
+                self._thread = None
+                self._current_operation_id = None
 
         self._thread = threading.Thread(target=_run, daemon=True)
         self._thread.start()
