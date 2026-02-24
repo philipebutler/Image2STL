@@ -39,7 +39,7 @@ def main():
 
         stylesheet_path = Path(__file__).parent / "ui" / "resources" / "styles.qss"
         if stylesheet_path.exists():
-            with open(stylesheet_path, "r") as f:
+            with open(stylesheet_path, "r", encoding="utf-8") as f:
                 app.setStyleSheet(f.read())
 
         window = MainWindow(config)
