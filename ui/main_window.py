@@ -3,7 +3,6 @@ Main application window
 """
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -382,19 +381,63 @@ class MainWindow(QMainWindow):
         default_scale = self.control_panel.scale_mm
 
         dialog = ExportDialog(project_name=project_name, default_scale_mm=default_scale, parent=self)
-        if dialog.exec() == ExportDialog.DialogCode.Accepted and dialog.output_path:
-            if self._reconstructed_model_path and self._reconstructed_model_path.exists():
-                try:
-                    shutil.copy2(self._reconstructed_model_path, dialog.output_path)
-                    self.status_bar.showMessage(f"Exported to {dialog.output_path.name}")
-                except Exception as exc:
-                    QMessageBox.critical(self, "Export failed", str(exc))
-            else:
-                QMessageBox.warning(
-                    self,
-                    "No model",
-                    "No reconstructed model is available. Generate a 3D model first.",
-                )
+        if dialog.exec() != ExportDialog.DialogCode.Accepted or not dialog.output_path:
+            return
+
+        if not self._reconstructed_model_path or not self._reconstructed_model_path.exists():
+            QMessageBox.warning(
+                self,
+                "No model",
+                "No reconstructed model is available. Generate a 3D model first.",
+            )
+            return
+
+        output_path = dialog.output_path
+        scale_mm = dialog.scale_mm
+        scale_axis = dialog.scale_axis
+
+        # Apply scaling via the engine and write directly to the chosen output path.
+        self.status_bar.showMessage(f"Scaling and exporting to {output_path.name}…")
+        self.control_panel.set_processing(True)
+
+        self.reconstruction_engine.scale(
+            input_mesh=self._reconstructed_model_path,
+            output_mesh=output_path,
+            target_size_mm=scale_mm,
+            axis=scale_axis,
+            on_success=self._on_export_success,
+            on_error=self._on_export_error,
+        )
+
+    def _on_export_success(self, output_path_str: str, scale_factor: float):
+        QMetaObject.invokeMethod(
+            self,
+            "_handle_export_success",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(str, output_path_str),
+            Q_ARG(float, scale_factor),
+        )
+
+    @Slot(str, float)
+    def _handle_export_success(self, output_path_str: str, scale_factor: float):
+        self.control_panel.set_processing(False)
+        name = Path(output_path_str).name if output_path_str else "file"
+        self.status_bar.showMessage(
+            f"Exported to {name} (scale factor {scale_factor:.4f})"
+        )
+
+    def _on_export_error(self, error_code: str, message: str):
+        QMetaObject.invokeMethod(
+            self,
+            "_handle_export_error",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(str, message),
+        )
+
+    @Slot(str)
+    def _handle_export_error(self, message: str):
+        self.control_panel.set_processing(False)
+        QMessageBox.critical(self, "Export failed", message)
 
     # ------------------------------------------------------------------
     # Cancel
@@ -412,6 +455,14 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def closeEvent(self, event):
+        if self.reconstruction_engine.is_running:
+            self.reconstruction_engine.cancel()
+            # Wait briefly for the daemon thread to flush any partial output.
+            # The thread is a daemon so the interpreter will not hang if the
+            # timeout expires.
+            thread = self.reconstruction_engine._thread
+            if thread is not None:
+                thread.join(timeout=2.0)
         self.project_manager.close_current_project()
         self.config.set("ui.window_width", self.width())
         self.config.set("ui.window_height", self.height())

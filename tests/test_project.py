@@ -165,6 +165,42 @@ class TestProjectRemoveImage(unittest.TestCase):
         self.project.remove_image("images/ghost.jpg")  # should not raise
         self.assertEqual(len(self.project.images), 1)
 
+    def test_remove_image_path_traversal_rejected(self):
+        """remove_image should not delete files outside the project directory."""
+        outside = "../../outside.jpg"
+        self.project.images.append(outside)
+        # Should not raise but must not delete anything outside the project
+        self.project.remove_image(outside)
+        self.assertNotIn(outside, self.project.images)
+
+
+class TestSetModel(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.base = Path(self.tmp)
+        self.project = Project.create_new("ModelTest", self.base)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_set_model_within_models_dir(self):
+        model = self.project.models_dir / "raw_reconstruction.obj"
+        model.write_bytes(b"solid test")
+        self.project.set_model(model)
+        self.assertIn("models/raw_reconstruction.obj", self.project.model_path)
+
+    def test_set_model_outside_models_dir_raises(self):
+        outside = self.project.project_path / "images" / "sneaky.obj"
+        outside.write_bytes(b"solid bad")
+        with self.assertRaises(ValueError):
+            self.project.set_model(outside)
+
+    def test_set_model_outside_project_raises(self):
+        outside = Path(self.tmp) / "outside.obj"
+        outside.write_bytes(b"solid outside")
+        with self.assertRaises(ValueError):
+            self.project.set_model(outside)
+
 
 class TestProjectSettings(unittest.TestCase):
     def test_defaults(self):

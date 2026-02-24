@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -83,11 +84,16 @@ class NewProjectDialog(QDialog):
     def _on_accept(self):
         name = self._name_edit.text().strip()
         if not name:
-            self._name_edit.setPlaceholderText("Name is required")
+            QMessageBox.warning(self, "Invalid Name", "Project name is required.")
+            self._name_edit.setFocus()
             return
         # Reject names with path separators
         if "/" in name or "\\" in name:
-            self._name_edit.setPlaceholderText("Name must not contain path separators")
-            self._name_edit.clear()
+            QMessageBox.warning(
+                self,
+                "Invalid Name",
+                "Project name must not contain path separators (/ or \\).",
+            )
+            self._name_edit.setFocus()
             return
         self.accept()

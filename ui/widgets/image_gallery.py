@@ -19,6 +19,16 @@ from PySide6.QtWidgets import (
     QFrame,
 )
 
+# Register optional image format support so QPixmap can decode HEIC/HEIF and AVIF files.
+try:
+    from image2stl.engine import _ensure_heif_support, _ensure_avif_support
+    _ensure_heif_support()
+    _ensure_avif_support()
+except Exception:
+    # Optional format plugins are not installed – thumbnails for HEIC/HEIF/AVIF
+    # will fall back to the "(preview unavailable)" placeholder text.
+    pass
+
 THUMBNAIL_WIDTH = 260
 THUMBNAIL_HEIGHT = 140
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp", ".avif"}

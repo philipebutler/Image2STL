@@ -1,6 +1,7 @@
 """
 Configuration management for Image2STL
 """
+import copy
 import json
 from pathlib import Path
 from typing import Any, Dict
@@ -76,10 +77,10 @@ class Config:
                 self._merge_defaults()
             except Exception as e:
                 logger.error(f"Failed to load config: {e}. Using defaults.")
-                self.config = self.DEFAULT_CONFIG.copy()
+                self.config = copy.deepcopy(self.DEFAULT_CONFIG)
         else:
             logger.info("No config file found. Creating default.")
-            self.config = self.DEFAULT_CONFIG.copy()
+            self.config = copy.deepcopy(self.DEFAULT_CONFIG)
             self.save()
 
     def save(self):

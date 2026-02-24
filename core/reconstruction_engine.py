@@ -76,20 +76,29 @@ class ReconstructionEngine:
                     msg_type = msg.get("type")
                     if msg_type == "progress":
                         if on_progress:
-                            on_progress(
-                                msg.get("progress", 0.0),
-                                msg.get("status", ""),
-                                msg.get("estimatedSecondsRemaining"),
-                            )
+                            try:
+                                on_progress(
+                                    msg.get("progress", 0.0),
+                                    msg.get("status", ""),
+                                    msg.get("estimatedSecondsRemaining"),
+                                )
+                            except Exception:
+                                logger.exception("on_progress callback raised an exception")
                     elif msg_type == "success":
                         if on_success:
-                            on_success(msg.get("outputPath", ""), msg.get("stats", {}))
+                            try:
+                                on_success(msg.get("outputPath", ""), msg.get("stats", {}))
+                            except Exception:
+                                logger.exception("on_success callback raised an exception")
                     elif msg_type == "error":
                         if on_error:
-                            on_error(
-                                msg.get("errorCode", "UNKNOWN_ERROR"),
-                                msg.get("message", ""),
-                            )
+                            try:
+                                on_error(
+                                    msg.get("errorCode", "UNKNOWN_ERROR"),
+                                    msg.get("message", ""),
+                                )
+                            except Exception:
+                                logger.exception("on_error callback raised an exception")
             finally:
                 # Clear thread and operation ID when the reconstruction finishes
                 self._thread = None
@@ -99,13 +108,17 @@ class ReconstructionEngine:
         self._thread.start()
 
     def cancel(self):
-        """Cancel the current reconstruction operation."""
+        """Cancel the current reconstruction operation.
+
+        Sends the cancel signal to the engine.  The operation ID is retained
+        until the background thread finishes and clears it in the finally block,
+        so ``is_running`` correctly reflects thread activity after cancellation.
+        """
         if self._current_operation_id:
             process_command({
                 "command": "cancel",
                 "operationId": self._current_operation_id,
             })
-            self._current_operation_id = None
 
     def repair(
         self,

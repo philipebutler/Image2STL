@@ -131,9 +131,15 @@ class Project:
         if image_path in self.images:
             self.images.remove(image_path)
 
-            full_path = self.project_path / image_path
-            if full_path.exists():
-                full_path.unlink()
+            full_path = (self.project_path / image_path).resolve()
+            project_root = self.project_path.resolve()
+            # Only delete the file if it is inside the project directory
+            try:
+                full_path.relative_to(project_root)
+                if full_path.exists():
+                    full_path.unlink()
+            except ValueError:
+                logger.warning(f"Skipping deletion of path outside project: {full_path}")
 
             self._update_modified()
             logger.info(f"Removed image: {image_path}")
