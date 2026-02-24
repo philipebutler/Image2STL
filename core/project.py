@@ -109,6 +109,8 @@ class Project:
                         f"Unable to determine a unique filename for '{source_path.name}' after {max_attempts} attempts."
                     )
                 dest_path = (self.images_dir / f"{stem}_{counter}{suffix}").resolve()
+                if dest_path.parent != self.images_dir.resolve():
+                    raise ValueError("Invalid image destination path")
                 counter += 1
 
         shutil.copy2(source_path, dest_path)
