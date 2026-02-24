@@ -1,0 +1,470 @@
+"""
+Main application window
+"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Optional
+
+from PySide6.QtCore import Qt, Slot, QMetaObject, Q_ARG
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import (
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QSplitter,
+    QStatusBar,
+    QFileDialog,
+    QMessageBox,
+    QLabel,
+    QPushButton,
+)
+import logging
+
+from config import Config
+from core.project_manager import ProjectManager
+from core.reconstruction_engine import ReconstructionEngine
+from ui.widgets.image_gallery import ImageGallery
+from ui.widgets.viewer_3d import Viewer3D
+from ui.widgets.control_panel import ControlPanel
+from ui.widgets.progress_widget import ProgressWidget
+from ui.dialogs.new_project_dialog import NewProjectDialog
+from ui.dialogs.open_project_dialog import OpenProjectDialog
+from ui.dialogs.settings_dialog import SettingsDialog
+from ui.dialogs.export_dialog import ExportDialog
+
+logger = logging.getLogger(__name__)
+
+
+class MainWindow(QMainWindow):
+    """Main application window"""
+
+    def __init__(self, config: Config):
+        super().__init__()
+        self.config = config
+        self.project_manager = ProjectManager(Path(config.get("app.last_project_dir")))
+        self.reconstruction_engine = ReconstructionEngine(config)
+        self._reconstructed_model_path: Optional[Path] = None
+
+        self._init_ui()
+        self._connect_signals()
+        self._restore_window_state()
+
+    # ------------------------------------------------------------------
+    # UI initialisation
+    # ------------------------------------------------------------------
+
+    def _init_ui(self):
+        self.setWindowTitle("Image2STL")
+        self.setMinimumSize(1024, 768)
+
+        self._create_menu_bar()
+
+        central = QWidget()
+        self.setCentralWidget(central)
+        main_layout = QVBoxLayout(central)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(8)
+
+        # Horizontal splitter: left panel | 3D viewer
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # Left panel
+        left_panel = self._create_left_panel()
+        splitter.addWidget(left_panel)
+
+        # 3D viewer
+        self.viewer_3d = Viewer3D(self.config)
+        splitter.addWidget(self.viewer_3d)
+        splitter.setSizes([320, 700])
+
+        main_layout.addWidget(splitter, 1)
+
+        # Control panel (mode, scale, buttons)
+        self.control_panel = ControlPanel(self.config)
+        main_layout.addWidget(self.control_panel)
+
+        # Progress + error display
+        self.progress_widget = ProgressWidget()
+        self.progress_widget.setVisible(False)
+        main_layout.addWidget(self.progress_widget)
+
+        # Status bar
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.status_bar.showMessage("Drag and drop 3-5 images or use File → Add Images.")
+
+    def _create_left_panel(self) -> QWidget:
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        layout.addWidget(QLabel("Images (3–5)"))
+
+        self.image_gallery = ImageGallery()
+        layout.addWidget(self.image_gallery, 1)
+
+        add_btn = QPushButton("Add Images…")
+        add_btn.clicked.connect(self._on_add_images)
+        layout.addWidget(add_btn)
+
+        return panel
+
+    def _create_menu_bar(self):
+        menu_bar = self.menuBar()
+
+        # File menu
+        file_menu = menu_bar.addMenu("&File")
+
+        new_action = QAction("&New Project…", self)
+        new_action.setShortcut("Ctrl+N")
+        new_action.triggered.connect(self._on_new_project)
+        file_menu.addAction(new_action)
+
+        open_action = QAction("&Open Project…", self)
+        open_action.setShortcut("Ctrl+O")
+        open_action.triggered.connect(self._on_open_project)
+        file_menu.addAction(open_action)
+
+        save_action = QAction("&Save Project", self)
+        save_action.setShortcut("Ctrl+S")
+        save_action.triggered.connect(self._on_save_project)
+        file_menu.addAction(save_action)
+
+        file_menu.addSeparator()
+
+        settings_action = QAction("Se&ttings…", self)
+        settings_action.triggered.connect(self._on_settings)
+        file_menu.addAction(settings_action)
+
+        file_menu.addSeparator()
+
+        quit_action = QAction("&Quit", self)
+        quit_action.setShortcut("Ctrl+Q")
+        quit_action.triggered.connect(self.close)
+        file_menu.addAction(quit_action)
+
+        # Images menu
+        images_menu = menu_bar.addMenu("&Images")
+        add_images_action = QAction("&Add Images…", self)
+        add_images_action.setShortcut("Ctrl+I")
+        add_images_action.triggered.connect(self._on_add_images)
+        images_menu.addAction(add_images_action)
+
+    # ------------------------------------------------------------------
+    # Signal connections
+    # ------------------------------------------------------------------
+
+    def _connect_signals(self):
+        self.image_gallery.images_changed.connect(self._on_images_changed)
+        self.control_panel.generate_requested.connect(self._on_generate)
+        self.control_panel.export_requested.connect(self._on_export)
+        self.control_panel.cancel_requested.connect(self._on_cancel)
+
+    # ------------------------------------------------------------------
+    # Window state
+    # ------------------------------------------------------------------
+
+    def _restore_window_state(self):
+        w = self.config.get("ui.window_width", 1280)
+        h = self.config.get("ui.window_height", 800)
+        self.resize(w, h)
+
+    # ------------------------------------------------------------------
+    # Menu / toolbar handlers
+    # ------------------------------------------------------------------
+
+    @Slot()
+    def _on_new_project(self):
+        dialog = NewProjectDialog(
+            default_dir=Path(self.config.get("app.last_project_dir")),
+            parent=self,
+        )
+        if dialog.exec() == NewProjectDialog.DialogCode.Accepted:
+            try:
+                project = self.project_manager.create_project(
+                    dialog.project_name, dialog.project_dir
+                )
+                self.image_gallery.clear()
+                self.progress_widget.reset()
+                self.progress_widget.setVisible(False)
+                self._reconstructed_model_path = None
+                self.control_panel.enable_export(False)
+                self.setWindowTitle(f"Image2STL – {project.name}")
+                self.status_bar.showMessage(f"New project '{project.name}' created.")
+                self.config.set("app.last_project_dir", str(dialog.project_dir))
+            except Exception as exc:
+                QMessageBox.critical(self, "Error", f"Could not create project:\n{exc}")
+
+    @Slot()
+    def _on_open_project(self):
+        projects = self.project_manager.list_projects()
+        dialog = OpenProjectDialog(projects, parent=self)
+        if dialog.exec() == OpenProjectDialog.DialogCode.Accepted and dialog.selected_project_path:
+            self._load_project(dialog.selected_project_path)
+
+    def _load_project(self, project_path: Path):
+        try:
+            project = self.project_manager.open_project(project_path)
+            self.image_gallery.clear()
+            image_paths = [str(p) for p in project.get_image_paths() if p.exists()]
+            self.image_gallery.add_images(image_paths)
+            self.setWindowTitle(f"Image2STL – {project.name}")
+            self.status_bar.showMessage(f"Loaded project '{project.name}'.")
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"Could not open project:\n{exc}")
+
+    @Slot()
+    def _on_save_project(self):
+        if self.project_manager.current_project:
+            try:
+                self.project_manager.save_current_project()
+                self.status_bar.showMessage("Project saved.")
+            except Exception as exc:
+                QMessageBox.critical(self, "Error", f"Could not save project:\n{exc}")
+        else:
+            self.status_bar.showMessage("No active project to save.")
+
+    @Slot()
+    def _on_settings(self):
+        dialog = SettingsDialog(self.config, parent=self)
+        dialog.exec()
+
+    @Slot()
+    def _on_add_images(self):
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select source images",
+            str(Path.home()),
+            "Images (*.jpg *.jpeg *.png *.heic *.heif *.webp *.avif);;All Files (*)",
+        )
+        if paths:
+            added = self.image_gallery.add_images(paths)
+            self.status_bar.showMessage(f"Added {added} image(s).")
+
+    # ------------------------------------------------------------------
+    # Image gallery changes
+    # ------------------------------------------------------------------
+
+    @Slot(list)
+    def _on_images_changed(self, image_paths: list):
+        count = len(image_paths)
+        if count < 3:
+            msg = f"Loaded {count} image(s). Add at least {3 - count} more."
+        elif count > 5:
+            msg = f"Loaded {count} image(s). Use 3–5 images for best results."
+        else:
+            msg = f"Loaded {count} image(s). Ready for reconstruction."
+        self.status_bar.showMessage(msg)
+
+        # Keep project in sync
+        if self.project_manager.current_project is not None:
+            project = self.project_manager.current_project
+            project.images = []
+            for fp in image_paths:
+                try:
+                    rel = str(Path(fp).relative_to(project.project_path))
+                    project.images.append(rel)
+                except ValueError:
+                    project.images.append(fp)
+
+    # ------------------------------------------------------------------
+    # Reconstruction
+    # ------------------------------------------------------------------
+
+    @Slot()
+    def _on_generate(self):
+        images = self.image_gallery.image_paths
+        if len(images) < 3:
+            QMessageBox.warning(self, "Not enough images", "Add at least 3 images before generating.")
+            return
+        if len(images) > 5:
+            QMessageBox.warning(self, "Too many images", "Use 3–5 images for best results.")
+            return
+
+        # Determine output path
+        project = self.project_manager.current_project
+        if project:
+            output_path = project.models_dir / "raw_reconstruction.obj"
+        else:
+            output_path = Path.home() / "raw_reconstruction.obj"
+
+        mode = self.control_panel.reconstruction_mode
+        api_key = self.config.get("meshy_api.api_key") if mode == "cloud" else None
+
+        self.progress_widget.reset()
+        self.progress_widget.setVisible(True)
+        self.control_panel.set_processing(True)
+        self.status_bar.showMessage(f"Generating 3D model ({mode} mode)…")
+
+        self.reconstruction_engine.reconstruct(
+            images=images,
+            output_path=output_path,
+            mode=mode,
+            api_key=api_key,
+            on_progress=self._on_engine_progress,
+            on_success=self._on_engine_success,
+            on_error=self._on_engine_error,
+        )
+
+    def _on_engine_progress(self, fraction: float, status: str, estimated_seconds):
+        # Called from background thread – use invokeMethod for thread safety
+        QMetaObject.invokeMethod(
+            self,
+            "_update_progress",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(float, fraction),
+            Q_ARG(str, status),
+            Q_ARG(object, estimated_seconds),
+        )
+
+    @Slot(float, str, object)
+    def _update_progress(self, fraction: float, status: str, estimated_seconds):
+        self.progress_widget.set_progress(fraction, status, estimated_seconds)
+
+    def _on_engine_success(self, output_path_str: str, stats: dict):
+        QMetaObject.invokeMethod(
+            self,
+            "_handle_success",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(str, output_path_str),
+        )
+
+    @Slot(str)
+    def _handle_success(self, output_path_str: str):
+        self._reconstructed_model_path = Path(output_path_str) if output_path_str else None
+        self.progress_widget.set_complete()
+        self.control_panel.set_processing(False)
+        self.control_panel.enable_export(True)
+        self.status_bar.showMessage("Reconstruction complete. Ready for export.")
+
+        if self.project_manager.current_project and self._reconstructed_model_path:
+            try:
+                self.project_manager.current_project.set_model(self._reconstructed_model_path)
+                self.project_manager.save_current_project()
+            except Exception:
+                pass
+
+    def _on_engine_error(self, error_code: str, message: str):
+        QMetaObject.invokeMethod(
+            self,
+            "_handle_error",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(str, error_code),
+            Q_ARG(str, message),
+        )
+
+    @Slot(str, str)
+    def _handle_error(self, error_code: str, message: str):
+        self.control_panel.set_processing(False)
+        suggestions = {
+            "INSUFFICIENT_IMAGES": "Add at least 3 images.",
+            "TOO_MANY_IMAGES": "Use 3–5 images.",
+            "API_ERROR": "Check your API key in Settings or try Local mode.",
+            "RECONSTRUCTION_FAILED": "Try different images or switch to Cloud mode.",
+            "OPERATION_CANCELLED": "Operation was cancelled.",
+        }
+        suggestion = suggestions.get(error_code, "Check the log for details.")
+        self.progress_widget.show_error(message, suggestion)
+        self.status_bar.showMessage(f"Error: {message}")
+
+    # ------------------------------------------------------------------
+    # Export
+    # ------------------------------------------------------------------
+
+    @Slot()
+    def _on_export(self):
+        project = self.project_manager.current_project
+        project_name = project.name if project else "model"
+        default_scale = self.control_panel.scale_mm
+
+        dialog = ExportDialog(project_name=project_name, default_scale_mm=default_scale, parent=self)
+        if dialog.exec() != ExportDialog.DialogCode.Accepted or not dialog.output_path:
+            return
+
+        if not self._reconstructed_model_path or not self._reconstructed_model_path.exists():
+            QMessageBox.warning(
+                self,
+                "No model",
+                "No reconstructed model is available. Generate a 3D model first.",
+            )
+            return
+
+        output_path = dialog.output_path
+        scale_mm = dialog.scale_mm
+        scale_axis = dialog.scale_axis
+
+        # Apply scaling via the engine and write directly to the chosen output path.
+        self.status_bar.showMessage(f"Scaling and exporting to {output_path.name}…")
+        self.control_panel.set_processing(True)
+
+        self.reconstruction_engine.scale(
+            input_mesh=self._reconstructed_model_path,
+            output_mesh=output_path,
+            target_size_mm=scale_mm,
+            axis=scale_axis,
+            on_success=self._on_export_success,
+            on_error=self._on_export_error,
+        )
+
+    def _on_export_success(self, output_path_str: str, scale_factor: float):
+        QMetaObject.invokeMethod(
+            self,
+            "_handle_export_success",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(str, output_path_str),
+            Q_ARG(float, scale_factor),
+        )
+
+    @Slot(str, float)
+    def _handle_export_success(self, output_path_str: str, scale_factor: float):
+        self.control_panel.set_processing(False)
+        name = Path(output_path_str).name if output_path_str else "file"
+        self.status_bar.showMessage(
+            f"Exported to {name} (scale factor {scale_factor:.4f})"
+        )
+
+    def _on_export_error(self, error_code: str, message: str):
+        QMetaObject.invokeMethod(
+            self,
+            "_handle_export_error",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(str, message),
+        )
+
+    @Slot(str)
+    def _handle_export_error(self, message: str):
+        self.control_panel.set_processing(False)
+        QMessageBox.critical(self, "Export failed", message)
+
+    # ------------------------------------------------------------------
+    # Cancel
+    # ------------------------------------------------------------------
+
+    @Slot()
+    def _on_cancel(self):
+        self.reconstruction_engine.cancel()
+        self.control_panel.set_processing(False)
+        self.progress_widget.setVisible(False)
+        self.status_bar.showMessage("Operation cancelled.")
+
+    # ------------------------------------------------------------------
+    # Window close
+    # ------------------------------------------------------------------
+
+    def closeEvent(self, event):
+        if self.reconstruction_engine.is_running:
+            self.reconstruction_engine.cancel()
+            # Wait briefly for the daemon thread to flush any partial output.
+            # The thread is a daemon so the interpreter will not hang if the
+            # timeout expires.
+            thread = self.reconstruction_engine._thread
+            if thread is not None:
+                thread.join(timeout=2.0)
+        self.project_manager.close_current_project()
+        self.config.set("ui.window_width", self.width())
+        self.config.set("ui.window_height", self.height())
+        self.config.save()
+        super().closeEvent(event)
