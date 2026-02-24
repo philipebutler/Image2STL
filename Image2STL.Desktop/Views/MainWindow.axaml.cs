@@ -112,11 +112,11 @@ public partial class MainWindow : Window
         }
     }
 
-    private void Generate_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    private async void Generate_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (DataContext is MainWindowViewModel vm)
         {
-            vm.StartGeneration();
+            await vm.GenerateAsync();
         }
     }
 

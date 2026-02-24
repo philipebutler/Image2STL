@@ -88,12 +88,39 @@
 
                 <!-- Action Buttons (SPEC FR3, FR7, FR8) -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                    <Button Content="Check Local Setup" Command="{Binding CheckLocalSetupCommand}" IsVisible="{Binding IsLocalMode}"/>
                     <Button Content="Generate 3D Model" Click="Generate_Click" Classes="accent"/>
                     <Button Content="Export STL" Click="ExportSTL_Click"/>
                     <Button Content="Cancel" Click="Cancel_Click"
                             IsVisible="{Binding IsProcessing}"/>
                 </StackPanel>
             </Grid>
+
+            <Border Background="#2A2A2A" CornerRadius="4" Padding="8,6">
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                    <TextBlock Grid.Column="0" Text="Python Command:" VerticalAlignment="Center"/>
+                    <TextBox Grid.Column="1"
+                             Text="{Binding PythonExecutable}"
+                             Watermark="python3 (or full path)"
+                             MinWidth="220"/>
+                </Grid>
+            </Border>
+
+            <Border IsVisible="{Binding IsCloudMode}" Background="#2A2A2A" CornerRadius="4" Padding="8,6">
+                <Grid ColumnDefinitions="Auto,*,Auto,*,Auto" ColumnSpacing="8" RowDefinitions="Auto,Auto" RowSpacing="6">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Cloud API Key:" VerticalAlignment="Center"/>
+                    <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding CloudApiKey}" Watermark="Meshy.ai API key" MinWidth="220"/>
+
+                    <TextBlock Grid.Row="0" Grid.Column="2" Text="Env Var:" VerticalAlignment="Center"/>
+                    <TextBox Grid.Row="0" Grid.Column="3" Text="{Binding CloudApiKeyEnvVar}" Watermark="MESHY_API_KEY" MinWidth="140"/>
+
+                    <Button Grid.Row="0" Grid.Column="4" Content="Check Cloud Setup" Command="{Binding CheckCloudSetupCommand}"/>
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="5"
+                               Text="Cloud mode uses API key from the field above when provided, otherwise from the environment variable name shown."
+                               Foreground="#FFE0E0E0" TextWrapping="Wrap"/>
+                </Grid>
+            </Border>
 
             <!-- Progress Bar (SPEC FR8) -->
             <Grid IsVisible="{Binding IsProcessing}" ColumnDefinitions="*,Auto" ColumnSpacing="8">
@@ -103,18 +130,26 @@
 
             <!-- Processing Time Warning (SPEC FR3 / NFR2) -->
             <Border IsVisible="{Binding ShowTimeWarning}" Background="#3FFFBF00" CornerRadius="4" Padding="8,4">
-                <TextBlock Text="{Binding TimeWarningText}" Foreground="#FFFFBF00"/>
+                <TextBlock Text="{Binding TimeWarningText}" Foreground="#FF1C1C1C"/>
             </Border>
 
             <!-- Error Display (SPEC FR9) -->
             <Border IsVisible="{Binding HasError}" Background="#3FFF4444" CornerRadius="4" Padding="8,4">
                 <StackPanel Spacing="2">
-                    <TextBlock Text="{Binding ErrorMessage}" Foreground="#FFFF6666" FontWeight="SemiBold"/>
-                    <TextBlock Text="{Binding ErrorSuggestion}" Foreground="#FFFF9999"/>
+                    <TextBlock Text="{Binding ErrorMessage}" Foreground="#FFFFF1F1" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding ErrorSuggestion}" Foreground="#FFFFE2E2"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Local Setup / Model Download Status -->
+            <Border IsVisible="{Binding ShowEnvironmentStatus}" Background="#3F3A6EA5" CornerRadius="4" Padding="8,4">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="{Binding EnvironmentSummary}" Foreground="#FFF6FBFF" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding EnvironmentDetails}" Foreground="#FFEAF4FF" TextWrapping="Wrap"/>
                 </StackPanel>
             </Border>
         </StackPanel>
 
-        <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Text="{Binding Status}"/>
+        <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Text="{Binding Status}" Foreground="#FFE8E8E8"/>
     </Grid>
 </Window>
