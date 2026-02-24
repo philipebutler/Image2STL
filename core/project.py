@@ -140,7 +140,18 @@ class Project:
 
     def set_model(self, model_path: Path):
         """Set the final model path (absolute path converted to relative)"""
-        self.model_path = str(model_path.resolve().relative_to(self.project_path.resolve()))
+        resolved_model = model_path.resolve()
+        project_root = self.project_path.resolve()
+        models_root = self.models_dir.resolve()
+
+        # Ensure the model path is within the models directory
+        try:
+            resolved_model.relative_to(models_root)
+        except ValueError as exc:
+            raise ValueError(f"Model path '{resolved_model}' must be inside the models directory '{models_root}'") from exc
+
+        # Store the model path relative to the project root
+        self.model_path = str(resolved_model.relative_to(project_root))
         self._update_modified()
 
     def _update_modified(self):
