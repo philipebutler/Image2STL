@@ -102,7 +102,12 @@ class Project:
             stem = source_path.stem
             suffix = source_path.suffix
             counter = 1
+            max_attempts = 1000
             while dest_path.exists():
+                if counter > max_attempts:
+                    raise RuntimeError(
+                        f"Unable to determine a unique filename for '{source_path.name}' after {max_attempts} attempts."
+                    )
                 dest_path = (self.images_dir / f"{stem}_{counter}{suffix}").resolve()
                 counter += 1
 
