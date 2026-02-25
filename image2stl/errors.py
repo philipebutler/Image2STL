@@ -49,6 +49,10 @@ ERROR_DEFINITIONS = {
         "message": "One or more images may have quality issues",
         "suggestion": "Use well-lit, sharp images from varied angles at 512x512 or higher",
     },
+    "REMBG_UNAVAILABLE": {
+        "message": "rembg library is not installed",
+        "suggestion": "Install rembg with: pip install rembg",
+    },
 }
 
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp", ".avif"}

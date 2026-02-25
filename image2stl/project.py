@@ -21,6 +21,7 @@ class Project:
     created: str
     lastModified: str
     images: list[str] = field(default_factory=list)
+    processedImages: list[str] = field(default_factory=list)
     reconstructionMode: str = "local"
     modelPath: str = ""
     scaleMm: float = 150.0

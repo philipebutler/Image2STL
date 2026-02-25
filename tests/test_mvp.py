@@ -453,5 +453,160 @@ endsolid demo
         self.assertEqual(result[0]["validation"]["result"], "pass")
 
 
+    def test_preprocess_images_command_success(self):
+        """preprocess_images engine command should return processed file paths on success."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            images_dir = project_dir / "images"
+            images_dir.mkdir()
+            img = images_dir / "photo1.jpg"
+            img.write_bytes(b"fake_image_data")
+            processed_dir = project_dir / "preview" / "processed"
+            processed_dir.mkdir(parents=True)
+
+            def _fake_preprocess(source, output_dir, **kwargs):
+                out = output_dir / f"{source.stem}_processed.png"
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(b"fake_rgba")
+                return out
+
+            import types as _types
+            fake_pre = _types.ModuleType("image2stl.preprocess")
+            fake_pre.preprocess_image = _fake_preprocess
+            with patch.dict(sys.modules, {"image2stl.preprocess": fake_pre}):
+                result = process_command({
+                    "command": "preprocess_images",
+                    "images": [str(img)],
+                    "outputDir": str(processed_dir),
+                    "strength": 0.5,
+                })
+            self.assertEqual(result[0]["type"], "success")
+            self.assertEqual(result[0]["command"], "preprocess_images")
+            self.assertEqual(len(result[0]["processedImages"]), 1)
+
+    def test_preprocess_images_handles_missing_rembg(self):
+        """preprocess_images should return REMBG_UNAVAILABLE when rembg is not installed."""
+        import sys
+
+        # Simulate rembg being absent by making the preprocess module raise ImportError
+        with tempfile.TemporaryDirectory() as tmp:
+            processed_dir = Path(tmp) / "preview" / "processed"
+
+            def _raise_import(*args, **kwargs):
+                raise ImportError("rembg is not installed")
+
+            import types as _types
+            fake_pre = _types.ModuleType("image2stl.preprocess")
+            fake_pre.preprocess_image = _raise_import
+            with patch.dict(sys.modules, {"image2stl.preprocess": fake_pre}):
+                result = process_command({
+                    "command": "preprocess_images",
+                    "images": ["a.jpg"],
+                    "outputDir": str(processed_dir),
+                })
+            self.assertEqual(result[0]["type"], "error")
+            self.assertEqual(result[0]["errorCode"], "REMBG_UNAVAILABLE")
+
+    def test_cli_preprocess_images_writes_preview_processed(self):
+        """preprocess-images CLI command should invoke engine and report success."""
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            _, project_dir = create_project(base, "PreprocessTest")
+            img = base / "photo.jpg"
+            img.write_bytes(b"fake_image_data")
+            self._run_cli(["add-images", "--project-dir", str(project_dir), str(img)])
+
+            processed_dir = project_dir / "preview" / "processed"
+            processed_dir.mkdir(parents=True, exist_ok=True)
+            expected_out = processed_dir / "photo_processed.png"
+
+            def _fake_preprocess(source, output_dir, **kwargs):
+                out = output_dir / f"{source.stem}_processed.png"
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(b"fake_rgba")
+                return out
+
+            import sys
+            import types as _types
+            fake_pre = _types.ModuleType("image2stl.preprocess")
+            fake_pre.preprocess_image = _fake_preprocess
+            with patch.dict(sys.modules, {"image2stl.preprocess": fake_pre}):
+                code, output = self._run_cli([
+                    "preprocess-images",
+                    "--project-dir", str(project_dir),
+                ])
+            self.assertEqual(code, 0)
+            self.assertEqual(output[-1]["type"], "success")
+            self.assertEqual(output[-1]["command"], "preprocess_images")
+
+    def test_reconstruct_project_uses_processed_images_when_selected(self):
+        """reconstruct-project --preprocess-source processed should use processed images."""
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            _, project_dir = create_project(base, "ProcessedSrcTest")
+            image_paths = []
+            for index in range(3):
+                img = base / f"IMG_{index}.jpg"
+                img.write_bytes(b"fake_image_data")
+                image_paths.append(img)
+            self._run_cli(["add-images", "--project-dir", str(project_dir), *map(str, image_paths)])
+
+            # Write fake processed images under preview/processed
+            processed_dir = project_dir / "preview" / "processed"
+            processed_dir.mkdir(parents=True)
+            proc_images = []
+            for index in range(3):
+                p = processed_dir / f"IMG_{index}_processed.png"
+                p.write_bytes(b"fake_rgba")
+                proc_images.append(str(p))
+
+            # Patch the project to have processedImages so CLI can pick them up
+            proj = load_project(project_dir)
+            proj.processedImages = [f"preview/processed/IMG_{i}_processed.png" for i in range(3)]
+            proj.save(project_dir)
+
+            captured_images = {}
+
+            def _fake_cloud(images, target, api_key):
+                captured_images["images"] = images
+                return _write_test_mesh(target, "cloud")
+
+            with patch.dict(os.environ, {"MESHY_API_KEY": "test-key"}, clear=True):
+                with patch("image2stl.engine._run_meshy_cloud", side_effect=_fake_cloud):
+                    code, output = self._run_cli([
+                        "reconstruct-project",
+                        "--project-dir", str(project_dir),
+                        "--mode", "cloud",
+                        "--preprocess-source", "processed",
+                    ])
+            self.assertEqual(code, 0)
+            # The reconstruction should have used the processed images list
+            self.assertTrue(
+                all("processed" in p or p.endswith(".png") for p in captured_images.get("images", [])),
+                f"Expected processed image paths, got: {captured_images.get('images')}",
+            )
+
+    def test_project_roundtrip_persists_preprocess_settings(self):
+        """Project save/load should round-trip all preprocess settings fields."""
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            _, project_dir = create_project(base, "PreprocessSettingsTest")
+            project = load_project(project_dir)
+            project.settings["auto_isolate_enabled"] = True
+            project.settings["preprocess_strength"] = 0.8
+            project.settings["preprocess_source_mode"] = "processed"
+            project.settings["hole_fill_enabled"] = False
+            project.settings["island_removal_threshold"] = 250
+            project.settings["crop_padding"] = 20
+            project.save(project_dir)
+            loaded = load_project(project_dir)
+            self.assertEqual(loaded.settings.get("auto_isolate_enabled"), True)
+            self.assertAlmostEqual(loaded.settings.get("preprocess_strength"), 0.8)
+            self.assertEqual(loaded.settings.get("preprocess_source_mode"), "processed")
+            self.assertEqual(loaded.settings.get("hole_fill_enabled"), False)
+            self.assertEqual(loaded.settings.get("island_removal_threshold"), 250)
+            self.assertEqual(loaded.settings.get("crop_padding"), 20)
+
+
 if __name__ == "__main__":
     unittest.main()

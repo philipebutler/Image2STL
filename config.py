@@ -49,6 +49,15 @@ class Config:
             "show_grid": True,
             "show_axes": True,
         },
+        "preprocess": {
+            "enabled": False,
+            "auto_on_generate": False,
+            "strength": 0.5,
+            "hole_fill_enabled": True,
+            "island_removal_threshold": 500,
+            "crop_padding": 10,
+            "processed_dir": "preview/processed",
+        },
     }
 
     def __init__(self, config_path: str = None):

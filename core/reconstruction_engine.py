@@ -157,6 +157,64 @@ class ReconstructionEngine:
         thread = threading.Thread(target=_run, daemon=True)
         thread.start()
 
+    def preprocess_images(
+        self,
+        images: List[str],
+        output_dir: Path,
+        strength: float = 0.5,
+        hole_fill: bool = True,
+        island_removal_threshold: int = 500,
+        crop_padding: int = 10,
+        on_success: Optional[Callable[[List[str], dict], None]] = None,
+        on_error: Optional[Callable[[str, str], None]] = None,
+    ):
+        """Run foreground isolation preprocessing in a background thread.
+
+        Args:
+            images: List of absolute image paths.
+            output_dir: Directory to write processed RGBA PNG files.
+            strength: Background removal strength (0.0–1.0).
+            hole_fill: Whether to fill holes in the mask.
+            island_removal_threshold: Minimum component size to keep.
+            crop_padding: Padding (in pixels) around tight crop.
+            on_success: Called with (processed_image_paths, stats_dict).
+            on_error: Called with (error_code, message).
+        """
+        command = {
+            "command": "preprocess_images",
+            "images": images,
+            "outputDir": str(output_dir),
+            "strength": strength,
+            "holeFill": hole_fill,
+            "islandRemovalThreshold": island_removal_threshold,
+            "cropPadding": crop_padding,
+        }
+
+        def _run():
+            messages = process_command(command)
+            for msg in messages:
+                if msg.get("type") == "success":
+                    if on_success:
+                        try:
+                            on_success(
+                                msg.get("processedImages", []),
+                                msg.get("stats", {}),
+                            )
+                        except Exception:
+                            logger.exception("on_success callback raised an exception")
+                elif msg.get("type") == "error":
+                    if on_error:
+                        try:
+                            on_error(
+                                msg.get("errorCode", "UNKNOWN_ERROR"),
+                                msg.get("message", ""),
+                            )
+                        except Exception:
+                            logger.exception("on_error callback raised an exception")
+
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+
     def scale(
         self,
         input_mesh: Path,
