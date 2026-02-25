@@ -184,7 +184,7 @@ python main.py
 
 ### Features
 
-- **Image gallery** — Drag-and-drop or file picker to load 3-5 images. Thumbnails are displayed for each image; HEIC/HEIF files show a placeholder.
+- **Image gallery** — Drag-and-drop or file picker to load 3-5 images. Thumbnails are displayed for each image; HEIC/HEIF files show a placeholder. Images with available processed versions are highlighted with a green border and a "✓ processed" badge.
 - **3D preview** — Interactive wireframe viewer with mouse-drag rotation and scroll-wheel zoom.
 - **Reconstruction mode** — Radio button toggle between Local (TripoSR) and Cloud (Meshy.ai) modes.
 - **Cloud configuration** — In Cloud mode, enter Meshy.ai API key directly or specify the environment variable name to use.
@@ -196,6 +196,7 @@ python main.py
 - **Progress & warnings** — Real-time progress bar, processing time warnings (>10 min), and user-friendly error messages from the engine.
 - **Drag-and-drop feedback** — Blue border highlight on the drop zone when files are dragged over the window.
 - **Settings** — Configure default scale, Meshy API key, and window preferences.
+- **Foreground Isolation (preprocessing)** — Automatically or manually strip photo backgrounds before reconstruction using the `rembg` library. See [Foreground Isolation](#foreground-isolation) below.
 
 ### Keyboard shortcuts
 
@@ -205,11 +206,50 @@ python main.py
 | Ctrl+O | Open Project |
 | Ctrl+S | Save Project |
 | Ctrl+I | Add Images |
+| Ctrl+P | Isolate Foreground (manual preprocess) |
 | Ctrl+Q | Quit |
 
 ### Supported image formats
 
 JPG, JPEG, PNG, HEIC, HEIF, WebP, AVIF
+
+### Foreground Isolation
+
+Image2STL can automatically remove photo backgrounds before reconstruction.  This
+typically improves 3D model quality by removing distracting background geometry.
+The feature requires the optional `rembg` library:
+
+```bash
+pip install rembg
+```
+
+#### UI controls (Foreground Isolation panel)
+
+| Control | Description |
+|---------|-------------|
+| **Auto Isolate** checkbox | When checked, backgrounds are stripped automatically each time you click *Generate 3D Model* |
+| **Run Preprocess** button | Manually run background removal on all loaded images right now |
+| **Source** combo | Choose *Original* or *Processed* as the input for reconstruction. Switch to *Processed* after running preprocessing to use the cleaned images |
+| **Strength** spin (0.0–1.0) | How aggressively the mask is cleaned up after background removal (0.5 is a good default) |
+| **Advanced ▸** | Expand for fine-grained mask controls |
+| — Fill holes | Fill small transparent holes that rembg leaves inside the foreground |
+| — Island threshold | Minimum pixel area for a foreground region to survive (removes stray dots) |
+| — Crop padding (px) | Extra pixels to leave around the tight foreground bounding box |
+
+After preprocessing, each image tile in the gallery gains a green border and
+"✓ processed" badge.  Processed images are cached under `preview/processed/`
+inside your project directory using a deterministic name that encodes the source
+file and current settings — re-running preprocessing with the same settings is
+instant (cache hit).
+
+#### Automatic vs manual mode
+
+| | Automatic | Manual |
+|-|-----------|--------|
+| **How** | Check *Auto Isolate*, then click *Generate 3D Model* | Click *Run Preprocess* (or Images → Isolate Foreground / Ctrl+P) |
+| **When** | Preprocessing runs before every reconstruction | Only when you explicitly trigger it |
+| **Source** | Always uses the freshly-processed images for reconstruction | You control the *Source* selector — switch to *Processed* manually |
+| **Best for** | Quick one-click workflow | Inspecting intermediate results or fine-tuning parameters |
 
 ## Run tests
 
@@ -258,4 +298,39 @@ Repair a mesh with target face count:
 
 ```bash
 python -m image2stl.cli run --json '{"command":"repair","inputMesh":"raw.obj","outputMesh":"repaired.stl","targetFaceCount":100000}'
+```
+
+### Foreground isolation CLI
+
+Preprocess all images in a project (writes RGBA PNGs to `preview/processed/`):
+
+```bash
+python -m image2stl.cli preprocess-images --project-dir /path/to/MyProject
+```
+
+With custom settings:
+
+```bash
+python -m image2stl.cli preprocess-images \
+  --project-dir /path/to/MyProject \
+  --strength 0.7 \
+  --island-threshold 200 \
+  --crop-padding 20
+```
+
+Reconstruct using the processed image set:
+
+```bash
+python -m image2stl.cli reconstruct-project \
+  --project-dir /path/to/MyProject \
+  --preprocess-source processed
+```
+
+Auto-isolate and reconstruct in one command:
+
+```bash
+python -m image2stl.cli reconstruct-project \
+  --project-dir /path/to/MyProject \
+  --auto-isolate-foreground \
+  --preprocess-strength 0.6
 ```
