@@ -246,8 +246,15 @@ class MainWindow(QMainWindow):
                 if (project.project_path / p).exists()
             ]
             self._processed_image_paths = processed_abs
-            # Source paths for processed images are the originals – mark gallery
-            self._processed_source_paths = image_paths if processed_abs else []
+
+            # Determine which source images actually have corresponding processed versions.
+            # We match by filename stem to be resilient to directory differences.
+            processed_stems = {Path(p).stem for p in processed_abs}
+            self._processed_source_paths = [
+                src_path
+                for src_path in image_paths
+                if Path(src_path).stem in processed_stems
+            ]
             self.image_gallery.mark_processed(self._processed_source_paths)
             self.control_panel.set_processed_count(len(processed_abs))
 
