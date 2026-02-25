@@ -9,6 +9,7 @@ import threading
 import time
 import contextvars
 import sys
+import inspect
 from pathlib import Path
 from urllib import error as urlerror
 from urllib import request as urlrequest
@@ -146,22 +147,32 @@ def _detect_triposr_cache_state(repo_id: str = "stabilityai/TripoSR") -> dict:
         "downloadLikelyRequired": None,
     }
     try:
-        from huggingface_hub import snapshot_download
-        from huggingface_hub.errors import LocalEntryNotFoundError
+        from huggingface_hub import hf_hub_download
     except (ImportError, ModuleNotFoundError):
         return state
 
     state["cacheCheckSupported"] = True
     try:
-        snapshot_download(repo_id=repo_id, local_files_only=True)
+        hf_hub_download(repo_id=repo_id, filename="config.yaml", local_files_only=True)
+        hf_hub_download(repo_id=repo_id, filename="model.ckpt", local_files_only=True)
         state["cacheStatusBeforeLoad"] = "cached"
         state["downloadLikelyRequired"] = False
-    except LocalEntryNotFoundError:
-        state["cacheStatusBeforeLoad"] = "not_cached"
-        state["downloadLikelyRequired"] = True
-    except Exception:
-        state["cacheStatusBeforeLoad"] = "unknown"
-        state["downloadLikelyRequired"] = None
+    except Exception as exc:
+        detail = str(exc).lower()
+        not_cached_markers = (
+            "local files only",
+            "not found in local cache",
+            "cannot find the requested files",
+            "cannot find the requested file",
+            "no such file",
+        )
+        if any(marker in detail for marker in not_cached_markers):
+            state["cacheStatusBeforeLoad"] = "not_cached"
+            state["downloadLikelyRequired"] = True
+        else:
+            state["cacheStatusBeforeLoad"] = "unknown"
+            state["downloadLikelyRequired"] = None
+            state["cacheCheckError"] = str(exc)
 
     return state
 
@@ -309,9 +320,17 @@ def _run_triposr_local(images: list[str], target: Path) -> dict:
     if _is_operation_cancelled():
         raise OperationCancelledError()
     try:
-        model = TSR.from_pretrained("stabilityai/TripoSR")
+        from_pretrained_params = inspect.signature(TSR.from_pretrained).parameters
+        if "config_name" in from_pretrained_params and "weight_name" in from_pretrained_params:
+            model = TSR.from_pretrained(
+                "stabilityai/TripoSR",
+                config_name="config.yaml",
+                weight_name="model.ckpt",
+            )
+        else:
+            model = TSR.from_pretrained("stabilityai/TripoSR")
     except Exception as exc:
-        raise ModelWeightsUnavailableError("Unable to load TripoSR model weights") from exc
+        raise ModelWeightsUnavailableError(f"Unable to load TripoSR model weights: {exc}") from exc
     if hasattr(model, "to"):
         model = model.to(device)
     primary_image = images[0]  # TripoSR inference currently runs from the primary capture image.
@@ -320,7 +339,11 @@ def _run_triposr_local(images: list[str], target: Path) -> dict:
     with Image.open(primary_image) as src_image:
         image = src_image.convert("RGB")
         scene_codes = model([image], device=device)
-    meshes = model.extract_mesh(scene_codes)
+    extract_mesh_params = inspect.signature(model.extract_mesh).parameters
+    if "has_vertex_color" in extract_mesh_params:
+        meshes = model.extract_mesh(scene_codes, has_vertex_color=False)
+    else:
+        meshes = model.extract_mesh(scene_codes)
     if _is_operation_cancelled():
         raise OperationCancelledError()
     mesh = meshes[0]
@@ -468,13 +491,17 @@ def process_command(command: dict) -> list[dict]:
             error = make_error("reconstruct", "PYTHON_DEPENDENCIES_MISSING")
             error["missingDependencies"] = exc.missing
             return [error]
-        except ModelWeightsUnavailableError:
+        except ModelWeightsUnavailableError as exc:
             _cleanup_operation(token, op_id)
-            return [make_error("reconstruct", "MODEL_WEIGHTS_UNAVAILABLE")]
-        except (urlerror.URLError, RuntimeError, ValueError):
+            error = make_error("reconstruct", "MODEL_WEIGHTS_UNAVAILABLE")
+            error["detail"] = str(exc)
+            return [error]
+        except (urlerror.URLError, RuntimeError, ValueError) as exc:
             error_code = "API_ERROR" if mode == "cloud" else "RECONSTRUCTION_FAILED"
             _cleanup_operation(token, op_id)
-            return [make_error("reconstruct", error_code)]
+            error = make_error("reconstruct", error_code)
+            error["detail"] = str(exc)
+            return [error]
         _cleanup_operation(token, op_id)
         output.append(
             {
@@ -565,10 +592,32 @@ def process_command(command: dict) -> list[dict]:
         src = Path(command["inputMesh"])
         dst = Path(command["outputMesh"])
         input_dimensions = tuple(command.get("inputDimensionsMm", DEFAULT_INPUT_DIMENSIONS_MM))
-        factor = calculate_scale_factor(input_dimensions, float(command["targetSizeMm"]), command.get("axis", "longest"))
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_text(f"; scale_factor={factor:.4f}\n{src.read_text(encoding='utf-8')}", encoding="utf-8")
-        return [{"type": "success", "command": "scale", "outputPath": str(dst), "scaleFactor": factor}]
+        try:
+            import trimesh  # type: ignore
+
+            loaded = trimesh.load(str(src), force="mesh")
+            if isinstance(loaded, trimesh.Scene):
+                mesh = loaded.dump(concatenate=True)
+            elif isinstance(loaded, (list, tuple)):
+                mesh = loaded[0] if loaded else None
+            else:
+                mesh = loaded
+
+            if mesh is None:
+                raise ValueError("Input mesh could not be loaded")
+
+            bounding_box = getattr(mesh, "bounding_box", None)
+            extents = tuple(float(v) for v in getattr(bounding_box, "extents", []))
+            dimensions_for_scale = extents if len(extents) == 3 and all(v > 0 for v in extents) else input_dimensions
+
+            factor = calculate_scale_factor(dimensions_for_scale, float(command["targetSizeMm"]), command.get("axis", "longest"))
+            mesh.apply_scale(factor)
+
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            mesh.export(str(dst))
+            return [{"type": "success", "command": "scale", "outputPath": str(dst), "scaleFactor": factor}]
+        except (ImportError, ModuleNotFoundError, OSError, RuntimeError, ValueError):
+            return [make_error("scale", "FILE_IO_ERROR")]
 
     if cmd == "check_images":
         images = command.get("images", [])

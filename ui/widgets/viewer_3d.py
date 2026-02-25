@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 from PySide6.QtCore import Qt, QPoint
 from PySide6.QtGui import QPainter, QPen, QColor, QVector3D
@@ -59,8 +60,96 @@ class Viewer3D(QWidget):
         self._zoom = 1.0
         self._dragging = False
         self._last_pos: QPoint = QPoint()
+        self._vertices: list[QVector3D] = list(_CUBE_VERTICES)
+        self._edges: list[tuple[int, int]] = list(_CUBE_EDGES)
         self.setMinimumSize(300, 300)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def reset_placeholder(self):
+        self._vertices = list(_CUBE_VERTICES)
+        self._edges = list(_CUBE_EDGES)
+        self._yaw = 0.5
+        self._pitch = 0.3
+        self._zoom = 1.0
+        self.update()
+
+    def load_model(self, model_path: str | Path) -> bool:
+        try:
+            import trimesh  # type: ignore
+
+            loaded = trimesh.load(str(model_path), force="mesh")
+            if isinstance(loaded, trimesh.Scene):
+                mesh = loaded.dump(concatenate=True)
+            elif isinstance(loaded, (list, tuple)):
+                mesh = loaded[0] if loaded else None
+            else:
+                mesh = loaded
+
+            if mesh is None:
+                self.reset_placeholder()
+                return False
+
+            raw_vertices = getattr(mesh, "vertices", None)
+            raw_faces = getattr(mesh, "faces", None)
+            if raw_vertices is None or raw_faces is None:
+                self.reset_placeholder()
+                return False
+
+            verts = [tuple(float(c) for c in row[:3]) for row in raw_vertices]
+            if not verts:
+                self.reset_placeholder()
+                return False
+
+            min_x = min(v[0] for v in verts)
+            max_x = max(v[0] for v in verts)
+            min_y = min(v[1] for v in verts)
+            max_y = max(v[1] for v in verts)
+            min_z = min(v[2] for v in verts)
+            max_z = max(v[2] for v in verts)
+
+            center_x = (min_x + max_x) / 2.0
+            center_y = (min_y + max_y) / 2.0
+            center_z = (min_z + max_z) / 2.0
+            span = max(max_x - min_x, max_y - min_y, max_z - min_z, 1e-9)
+            norm = 2.0 / span
+
+            self._vertices = [
+                QVector3D(
+                    (vx - center_x) * norm,
+                    (vy - center_y) * norm,
+                    (vz - center_z) * norm,
+                )
+                for vx, vy, vz in verts
+            ]
+
+            edge_set: set[tuple[int, int]] = set()
+            for face in raw_faces:
+                face_indices = [int(idx) for idx in face]
+                if len(face_indices) < 2:
+                    continue
+                for i in range(len(face_indices)):
+                    a = face_indices[i]
+                    b = face_indices[(i + 1) % len(face_indices)]
+                    if a == b:
+                        continue
+                    edge_set.add((a, b) if a < b else (b, a))
+
+            self._edges = sorted(edge_set)
+            if not self._edges:
+                self.reset_placeholder()
+                return False
+
+            if len(self._edges) > 50000:
+                self._edges = self._edges[:50000]
+
+            self._yaw = 0.5
+            self._pitch = 0.3
+            self._zoom = 1.0
+            self.update()
+            return True
+        except Exception:
+            self.reset_placeholder()
+            return False
 
     # ------------------------------------------------------------------
     # Painting
@@ -79,7 +168,7 @@ class Viewer3D(QWidget):
         scale = min(w, h) * 0.33 * self._zoom
 
         projected = []
-        for v in _CUBE_VERTICES:
+        for v in self._vertices:
             v = _rotate_y(v, self._yaw)
             v = _rotate_x(v, self._pitch)
             z = v.z() + 4.0
@@ -88,7 +177,9 @@ class Viewer3D(QWidget):
 
         pen = QPen(QColor("#00bfff"), 2)
         painter.setPen(pen)
-        for a, b in _CUBE_EDGES:
+        for a, b in self._edges:
+            if a < 0 or b < 0 or a >= len(projected) or b >= len(projected):
+                continue
             painter.drawLine(
                 int(projected[a][0]), int(projected[a][1]),
                 int(projected[b][0]), int(projected[b][1]),

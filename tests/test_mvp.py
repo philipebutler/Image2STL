@@ -203,7 +203,19 @@ class MVPTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "in.stl"
             dst = Path(tmp) / "out.stl"
-            src.write_text("solid demo", encoding="utf-8")
+            src.write_text(
+                """solid demo
+facet normal 0 0 1
+ outer loop
+  vertex 0 0 0
+  vertex 1 0 0
+  vertex 0 1 0
+ endloop
+endfacet
+endsolid demo
+""",
+                encoding="utf-8",
+            )
             result = process_command(
                 {
                     "command": "scale",
@@ -215,6 +227,7 @@ class MVPTests(unittest.TestCase):
                 }
             )
             self.assertEqual(result[0]["scaleFactor"], 2.0)
+            self.assertTrue(dst.exists())
 
     def test_cancel_operation_marks_reconstruct_as_cancelled(self):
         process_command({"command": "cancel", "operationId": "op-1"})

@@ -2,9 +2,20 @@
 Image2STL - Main Entry Point
 """
 import sys
+import os
 import logging
 from pathlib import Path
 
+try:
+    import PySide6
+
+    _qt_plugins = Path(PySide6.__file__).resolve().parent / "Qt" / "plugins"
+    os.environ.setdefault("QT_PLUGIN_PATH", str(_qt_plugins))
+    os.environ.setdefault("QT_QPA_PLATFORM_PLUGIN_PATH", str(_qt_plugins / "platforms"))
+except Exception:
+    pass
+
+from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QIcon
 
@@ -26,6 +37,9 @@ logger = logging.getLogger(__name__)
 def main():
     """Main application entry point"""
     try:
+        qt_plugin_root = os.environ.get("QT_PLUGIN_PATH")
+        if qt_plugin_root:
+            QCoreApplication.setLibraryPaths([qt_plugin_root])
         app = QApplication(sys.argv)
         app.setApplicationName("Image2STL")
         app.setApplicationVersion("1.0.0")

@@ -1,0 +1,105 @@
+2026-02-24 18:34:51,683 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
+2026-02-24 18:34:55,672 - __main__ - INFO - Application started successfully
+2026-02-24 18:35:44,488 - core.reconstruction_engine - ERROR - on_progress callback raised an exception
+Traceback (most recent call last):
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/core/reconstruction_engine.py", line 80, in _run
+    on_progress(
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/ui/main_window.py", line 320, in _on_engine_progress
+    Q_ARG(object, estimated_seconds),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: qArgDataFromPyType: Unable to find a QMetaType for "object".
+2026-02-24 18:35:44,511 - core.reconstruction_engine - ERROR - on_progress callback raised an exception
+Traceback (most recent call last):
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/core/reconstruction_engine.py", line 80, in _run
+    on_progress(
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/ui/main_window.py", line 320, in _on_engine_progress
+    Q_ARG(object, estimated_seconds),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: qArgDataFromPyType: Unable to find a QMetaType for "object".
+2026-02-24 18:35:44,511 - core.reconstruction_engine - ERROR - on_progress callback raised an exception
+Traceback (most recent call last):
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/core/reconstruction_engine.py", line 80, in _run
+    on_progress(
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/ui/main_window.py", line 320, in _on_engine_progress
+    Q_ARG(object, estimated_seconds),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: qArgDataFromPyType: Unable to find a QMetaType for "object".
+2026-02-24 18:35:44,519 - core.reconstruction_engine - ERROR - on_progress callback raised an exception
+Traceback (most recent call last):
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/core/reconstruction_engine.py", line 80, in _run
+    on_progress(
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/ui/main_window.py", line 320, in _on_engine_progress
+    Q_ARG(object, estimated_seconds),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: qArgDataFromPyType: Unable to find a QMetaType for "object".
+2026-02-24 18:35:44,519 - core.reconstruction_engine - ERROR - on_progress callback raised an exception
+Traceback (most recent call last):
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/core/reconstruction_engine.py", line 80, in _run
+    on_progress(
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/ui/main_window.py", line 320, in _on_engine_progress
+    Q_ARG(object, estimated_seconds),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: qArgDataFromPyType: Unable to find a QMetaType for "object".
+2026-02-24 18:35:44,519 - core.reconstruction_engine - ERROR - on_progress callback raised an exception
+Traceback (most recent call last):
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/core/reconstruction_engine.py", line 80, in _run
+    on_progress(
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/ui/main_window.py", line 320, in _on_engine_progress
+    Q_ARG(object, estimated_seconds),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: qArgDataFromPyType: Unable to find a QMetaType for "object".
+2026-02-24 18:36:58,310 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json
+2026-02-24 18:45:20,557 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
+2026-02-24 18:45:20,797 - __main__ - INFO - Application started successfully
+2026-02-24 22:38:41,928 - core.reconstruction_engine - ERROR - on_progress callback raised an exception
+Traceback (most recent call last):
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/core/reconstruction_engine.py", line 80, in _run
+    on_progress(
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/ui/main_window.py", line 320, in _on_engine_progress
+    Q_ARG(object, estimated_seconds),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: qArgDataFromPyType: Unable to find a QMetaType for "object".
+2026-02-24 22:38:41,955 - core.reconstruction_engine - ERROR - on_progress callback raised an exception
+Traceback (most recent call last):
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/core/reconstruction_engine.py", line 80, in _run
+    on_progress(
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/ui/main_window.py", line 320, in _on_engine_progress
+    Q_ARG(object, estimated_seconds),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: qArgDataFromPyType: Unable to find a QMetaType for "object".
+2026-02-24 22:38:41,955 - core.reconstruction_engine - ERROR - on_progress callback raised an exception
+Traceback (most recent call last):
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/core/reconstruction_engine.py", line 80, in _run
+    on_progress(
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/ui/main_window.py", line 320, in _on_engine_progress
+    Q_ARG(object, estimated_seconds),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: qArgDataFromPyType: Unable to find a QMetaType for "object".
+2026-02-24 22:38:41,956 - core.reconstruction_engine - ERROR - on_progress callback raised an exception
+Traceback (most recent call last):
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/core/reconstruction_engine.py", line 80, in _run
+    on_progress(
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/ui/main_window.py", line 320, in _on_engine_progress
+    Q_ARG(object, estimated_seconds),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: qArgDataFromPyType: Unable to find a QMetaType for "object".
+2026-02-24 22:38:41,956 - core.reconstruction_engine - ERROR - on_progress callback raised an exception
+Traceback (most recent call last):
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/core/reconstruction_engine.py", line 80, in _run
+    on_progress(
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/ui/main_window.py", line 320, in _on_engine_progress
+    Q_ARG(object, estimated_seconds),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: qArgDataFromPyType: Unable to find a QMetaType for "object".
+2026-02-24 22:38:41,956 - core.reconstruction_engine - ERROR - on_progress callback raised an exception
+Traceback (most recent call last):
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/core/reconstruction_engine.py", line 80, in _run
+    on_progress(
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/ui/main_window.py", line 320, in _on_engine_progress
+    Q_ARG(object, estimated_seconds),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: qArgDataFromPyType: Unable to find a QMetaType for "object".
+2026-02-24 22:42:20,066 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json
+2026-02-24 22:44:44,772 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
+2026-02-24 22:44:44,956 - __main__ - INFO - Application started successfully
+2026-02-24 22:53:29,183 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json

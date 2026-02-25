@@ -191,6 +191,7 @@ class MainWindow(QMainWindow):
                 self.progress_widget.reset()
                 self.progress_widget.setVisible(False)
                 self._reconstructed_model_path = None
+                self.viewer_3d.reset_placeholder()
                 self.control_panel.enable_export(False)
                 self.setWindowTitle(f"Image2STL – {project.name}")
                 self.status_bar.showMessage(f"New project '{project.name}' created.")
@@ -211,6 +212,14 @@ class MainWindow(QMainWindow):
             self.image_gallery.clear()
             image_paths = [str(p) for p in project.get_image_paths() if p.exists()]
             self.image_gallery.add_images(image_paths)
+            model_path = project.get_model_path()
+            self._reconstructed_model_path = model_path if model_path and model_path.exists() else None
+            if self._reconstructed_model_path:
+                self.viewer_3d.load_model(self._reconstructed_model_path)
+                self.control_panel.enable_export(True)
+            else:
+                self.viewer_3d.reset_placeholder()
+                self.control_panel.enable_export(False)
             self.setWindowTitle(f"Image2STL – {project.name}")
             self.status_bar.showMessage(f"Loaded project '{project.name}'.")
         except Exception as exc:
@@ -311,18 +320,19 @@ class MainWindow(QMainWindow):
 
     def _on_engine_progress(self, fraction: float, status: str, estimated_seconds):
         # Called from background thread – use invokeMethod for thread safety
+        estimated_seconds_int = int(estimated_seconds) if isinstance(estimated_seconds, (int, float)) else -1
         QMetaObject.invokeMethod(
             self,
             "_update_progress",
             Qt.ConnectionType.QueuedConnection,
             Q_ARG(float, fraction),
             Q_ARG(str, status),
-            Q_ARG(object, estimated_seconds),
+            Q_ARG(int, estimated_seconds_int),
         )
 
-    @Slot(float, str, object)
-    def _update_progress(self, fraction: float, status: str, estimated_seconds):
-        self.progress_widget.set_progress(fraction, status, estimated_seconds)
+    @Slot(float, str, int)
+    def _update_progress(self, fraction: float, status: str, estimated_seconds: int):
+        self.progress_widget.set_progress(fraction, status, None if estimated_seconds < 0 else estimated_seconds)
 
     def _on_engine_success(self, output_path_str: str, stats: dict):
         QMetaObject.invokeMethod(
@@ -337,7 +347,12 @@ class MainWindow(QMainWindow):
         self._reconstructed_model_path = Path(output_path_str) if output_path_str else None
         self.progress_widget.set_complete()
         self.control_panel.set_processing(False)
-        self.control_panel.enable_export(True)
+        loaded = False
+        if self._reconstructed_model_path and self._reconstructed_model_path.exists():
+            loaded = self.viewer_3d.load_model(self._reconstructed_model_path)
+        if not loaded:
+            self.viewer_3d.reset_placeholder()
+        self.control_panel.enable_export(self._reconstructed_model_path is not None)
         self.status_bar.showMessage("Reconstruction complete. Ready for export.")
 
         if self.project_manager.current_project and self._reconstructed_model_path:

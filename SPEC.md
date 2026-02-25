@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-A desktop application for creating 3D-printable models from smartphone photos. Primary use case is scanning people's heads, but supports general object capture. The application uses a hybrid architecture with .NET/Avalonia UI frontend and Python-based AI reconstruction backend.
+A desktop application for creating 3D-printable models from smartphone photos. Primary use case is scanning people's heads, but supports general object capture. The application uses a Python UI frontend and Python-based AI reconstruction backend.
 
 ## Target Users
 
@@ -95,8 +95,7 @@ A desktop application for creating 3D-printable models from smartphone photos. P
 - Windows: MSI or NSIS installer
 - macOS: DMG with app bundle
 - Installer includes:
-  - .NET runtime (if needed)
-  - Avalonia UI application
+  - Python UI application
   - Bundled Python reconstruction engine
   - Pre-trained AI models
 - Installation size: ~2-3GB
@@ -112,11 +111,11 @@ A desktop application for creating 3D-printable models from smartphone photos. P
 
 ```
 ┌─────────────────────────────────────┐
-│   Avalonia UI Application (.NET)    │
+│      Python UI Application           │
 │  ┌──────────────────────────────┐   │
 │  │  Project Management          │   │
 │  │  Image Loading/Preview       │   │
-│  │  3D Viewer (HelixToolkit)    │   │
+│  │  3D Viewer (Python/OpenGL)   │   │
 │  │  Settings & Controls         │   │
 │  └──────────────────────────────┘   │
 └──────────────┬──────────────────────┘
@@ -135,12 +134,11 @@ A desktop application for creating 3D-printable models from smartphone photos. P
 
 ### Technology Stack
 
-#### Frontend (.NET)
-- **Framework**: .NET 8.0
-- **UI**: Avalonia UI 11.x
-- **3D Viewer**: HelixToolkit or Avalonia.ThreeD
-- **JSON**: System.Text.Json
-- **Project Structure**: MVVM pattern
+#### Frontend (Python UI)
+- **Framework**: PySide6
+- **3D Viewer**: OpenGL-based wireframe preview
+- **JSON**: Python stdlib json
+- **Project Structure**: modular UI components
 
 #### Backend (Python)
 - **Python**: 3.10+
@@ -181,7 +179,7 @@ A desktop application for creating 3D-printable models from smartphone photos. P
 ### Export Flow
 1. User adjusts scale in millimeters
 2. User clicks "Export STL"
-3. Frontend sends scale command to Python engine (or applies in .NET if mesh already loaded)
+3. Frontend sends scale command to Python engine (or applies in UI layer if mesh already loaded)
 4. User selects save location
 5. App exports STL file
 6. App shows success message
@@ -358,7 +356,7 @@ MyProject/
 ## Development Phases
 
 ### Phase 1: Core Infrastructure (Week 1-2)
-- Set up .NET Avalonia project structure
+- Set up Python desktop UI project structure
 - Implement basic project management (create, save, load)
 - Create image loading UI (drag-drop, file picker)
 - Set up Python engine skeleton with IPC
@@ -409,12 +407,9 @@ MyProject/
 
 ## Dependencies
 
-### .NET NuGet Packages
-- Avalonia (11.x)
-- Avalonia.Desktop
-- HelixToolkit.Wpf.SharpDX (or alternative 3D viewer)
-- System.Text.Json
-- CommunityToolkit.Mvvm
+### Python UI Packages
+- PySide6
+- pyqtgraph or OpenGL helper package (for 3D preview)
 
 ### Python Packages
 - torch (CPU-only build)
@@ -431,7 +426,7 @@ MyProject/
 
 ## Configuration
 
-### appsettings.json (.NET)
+### appsettings.json (Desktop UI)
 ```json
 {
   "PythonEngine": {
@@ -495,7 +490,7 @@ MyProject/
 
 ## Open Questions for Development
 
-1. HelixToolkit compatibility with Avalonia 11 - may need alternative 3D viewer
+1. 3D viewer compatibility in the Python UI - may need alternative rendering backend
    - **Resolution**: Build 4-hour spike in Week 1 to validate
 2. TripoSR PyInstaller bundling complexity - may need custom build process
    - **Resolution**: Create bundling test in Week 1, adjust if bundle >5GB
@@ -516,11 +511,11 @@ Before starting full development, validate critical technical assumptions throug
 
 ### Validation 1: 3D Viewer Compatibility
 
-**Goal**: Confirm HelixToolkit works with Avalonia 11 for STL display with rotate/zoom controls.
+**Goal**: Confirm the selected Python UI 3D viewer works for STL display with rotate/zoom controls.
 
 **Tasks**:
-1. Create new Avalonia 11 desktop application (.NET 8)
-2. Add NuGet package: `HelixToolkit.Wpf.SharpDX` or `HelixToolkit.Avalonia`
+1. Create new Python desktop UI test application
+2. Add/validate selected 3D viewer dependency
 3. Create a minimal window with 3D viewport
 4. Load a sample STL file (cube or sphere)
 5. Implement basic mouse controls:
@@ -537,10 +532,10 @@ Before starting full development, validate critical technical assumptions throug
 
 **Failure Scenarios & Alternatives**:
 
-If HelixToolkit doesn't work:
-- **Option A**: Try `Avalonia.Labs.Rendering3D` or community Avalonia 3D packages
-- **Option B**: Embed web-based viewer (Babylon.js/Three.js) in Avalonia WebView
-- **Option C**: Use Silk.NET.OpenGL for custom OpenGL renderer
+If default 3D viewer doesn't work:
+- **Option A**: Try alternate Python 3D rendering packages
+- **Option B**: Embed web-based viewer (Babylon.js/Three.js) in a web view
+- **Option C**: Use a custom OpenGL renderer
 - **Option D**: Shell out to external viewer app (Meshlab, etc.) - least desirable
 
 **Time Budget**: 4-6 hours
@@ -796,7 +791,7 @@ Tester: [Name]
 head-scanner/
 ├── validation/
 │   ├── 01-3d-viewer/
-│   │   ├── AvaloniaViewerTest/
+│   │   ├── DesktopViewerTest/
 │   │   ├── README.md
 │   │   └── results.md
 │   ├── 02-python-bundling/

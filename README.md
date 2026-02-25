@@ -162,26 +162,13 @@ Windows PowerShell (persist for future sessions):
 setx MESHY_API_KEY "your_key_here"
 ```
 
-### Desktop app build
+### Python UI setup
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-### Desktop setup checks (recommended)
-
-The desktop app now includes built-in setup checks and Python interpreter selection:
-
-- **Python Command** field — sets which Python executable the app uses (`python3`, `python`, or full path).
-- **Check Local Setup** button — validates required local dependencies and TripoSR cache/download readiness.
-- **Check Cloud Setup** button (Cloud mode) — validates Meshy.ai API key configuration.
-
-Suggested values for **Python Command**:
-
-- macOS: `.venv/bin/python` (recommended) or `/opt/homebrew/bin/python3`
-- Windows: `.venv\Scripts\python.exe` (recommended) or full path like `C:\Python311\python.exe`
-
-If local dependencies are reported missing, install them with the same interpreter configured in **Python Command**:
+If local dependencies are reported missing, install them with the same interpreter you use to run the app:
 
 ```bash
 <python-command> -m pip install pillow torch transformers huggingface-hub trimesh pymeshlab numpy
@@ -189,12 +176,7 @@ If local dependencies are reported missing, install them with the same interpret
 # plus source checkout linkage for tsr module (handled automatically by setup scripts)
 ```
 
-### Packaging targets
-
-Use the included packaging helpers:
-
-- Windows: `Image2STL.Desktop/packaging/build-windows-installer.ps1`
-- macOS: `Image2STL.Desktop/packaging/build-macos-installer.sh`
+### Launch UI
 
 ```bash
 python main.py

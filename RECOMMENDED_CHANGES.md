@@ -6,9 +6,9 @@ This document outlines recommended changes and updates to the Image2STL applicat
 
 ### 1. Native HEIC Thumbnail Rendering in Desktop UI
 
-**Current State**: HEIC/HEIF files are accepted in the Desktop UI but display a blank placeholder thumbnail because Avalonia cannot natively decode HEIC images.
+**Current State**: HEIC/HEIF files are accepted in the Desktop UI but may display a blank placeholder thumbnail depending on the active image backend.
 
-**Recommendation**: Use the `pillow-heif` Python backend (or a .NET HEIC library such as `LibHeifSharp`) to convert HEIC images to JPEG/PNG on import so that real thumbnails are displayed in the image gallery.
+**Recommendation**: Use the `pillow-heif` Python backend to convert HEIC images to JPEG/PNG on import so that real thumbnails are displayed in the image gallery.
 
 ---
 
@@ -30,7 +30,7 @@ This document outlines recommended changes and updates to the Image2STL applicat
 
 ### 4. Cancel Operation Plumbing
 
-**Current State**: Cancel support is implemented at the engine level via operation IDs, but there is no UI button or frontend-to-backend cancel message wiring in the Avalonia desktop application.
+**Current State**: Cancel support is implemented at the engine level via operation IDs, but there is no UI button or frontend-to-backend cancel message wiring in the desktop application.
 
 **Recommendation**: Add a "Cancel" button to the progress bar area of the main window. Wire it to send a `{"command": "cancel", "targetOperationId": "..."}` JSON message to the Python subprocess.
 
@@ -92,7 +92,7 @@ This document outlines recommended changes and updates to the Image2STL applicat
 
 **Current State**: Build scripts exist for Windows (PowerShell) and macOS (shell script) but complete installer packaging with bundled Python engine and pre-trained models has not been verified.
 
-**Recommendation**: Complete and test the installer pipelines on both platforms. Include the Python engine (via PyInstaller), required models, and the .NET Avalonia application in a single installer package per SPEC NFR3.
+**Recommendation**: Complete and test the installer pipelines on both platforms. Include the Python engine (via PyInstaller), required models, and the desktop UI application in a single installer package per SPEC NFR3.
 
 ---
 

@@ -115,4 +115,4 @@ Write-Host "Running Image2STL local environment check..."
 
 Write-Host ""
 Write-Host "Setup complete."
-Write-Host "In the desktop app, set Python Command to: $InstallPython"
+Write-Host "Use this Python interpreter when running Image2STL: $InstallPython"

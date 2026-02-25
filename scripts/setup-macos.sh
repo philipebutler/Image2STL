@@ -176,4 +176,4 @@ echo "Running Image2STL local environment check..."
 
 echo
 echo "Setup complete."
-echo "In the desktop app, set Python Command to: $INSTALL_PYTHON"
+echo "Use this Python interpreter when running Image2STL: $INSTALL_PYTHON"
