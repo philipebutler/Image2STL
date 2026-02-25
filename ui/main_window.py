@@ -393,8 +393,22 @@ class MainWindow(QMainWindow):
     def _handle_preprocess_success(self, processed_paths: list):
         images = self.image_gallery.image_paths
         self._processed_image_paths = processed_paths
-        # All original images now have processed versions
-        self._processed_source_paths = list(images)
+
+        # Map processed outputs back to source images conservatively.
+        # If the counts don't match, avoid marking more sources as processed
+        # than there are processed outputs.
+        if len(processed_paths) != len(images):
+            logger.warning(
+                "Preprocessing reported %d processed image(s) for %d source image(s); "
+                "marking only a subset of source images as processed.",
+                len(processed_paths),
+                len(images),
+            )
+            processed_source_paths = list(images[: len(processed_paths)])
+        else:
+            processed_source_paths = list(images)
+
+        self._processed_source_paths = processed_source_paths
         self.image_gallery.mark_processed(self._processed_source_paths)
         self.control_panel.set_processed_count(len(processed_paths))
         self.control_panel.set_processing(False)
