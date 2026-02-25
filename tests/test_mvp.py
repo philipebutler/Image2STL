@@ -518,10 +518,11 @@ endsolid demo
 
             processed_dir = project_dir / "preview" / "processed"
             processed_dir.mkdir(parents=True, exist_ok=True)
-            expected_out = processed_dir / "photo_processed.png"
+            expected_out = processed_dir / "photo_dummyhash_processed.png"
 
             def _fake_preprocess(source, output_dir, **kwargs):
-                out = output_dir / f"{source.stem}_processed.png"
+                hash_part = "dummyhash"
+                out = output_dir / f"{source.stem}_{hash_part}_processed.png"
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_bytes(b"fake_rgba")
                 return out
