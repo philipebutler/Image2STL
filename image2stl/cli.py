@@ -56,6 +56,8 @@ def main() -> int:
     preprocess_images_cmd.add_argument("--no-hole-fill", action="store_true", default=False)
     preprocess_images_cmd.add_argument("--island-threshold", type=int, default=500)
     preprocess_images_cmd.add_argument("--crop-padding", type=int, default=10)
+    preprocess_images_cmd.add_argument("--edge-feather-radius", type=int, default=2)
+    preprocess_images_cmd.add_argument("--contrast-strength", type=float, default=0.0)
 
     args = parser.parse_args()
 
@@ -147,6 +149,8 @@ def main() -> int:
             "holeFill": not args.no_hole_fill,
             "islandRemovalThreshold": args.island_threshold,
             "cropPadding": args.crop_padding,
+            "edgeFeatherRadius": args.edge_feather_radius,
+            "contrastStrength": args.contrast_strength,
         }
         messages = process_command(command)
         for message in messages:

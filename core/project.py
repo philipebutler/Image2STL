@@ -38,6 +38,8 @@ class ProjectSettings:
     hole_fill_enabled: bool = True
     island_removal_threshold: int = 500
     crop_padding: int = 10
+    edge_feather_radius: int = 2
+    contrast_strength: float = 0.0
 
 
 @dataclass

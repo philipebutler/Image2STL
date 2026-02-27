@@ -268,6 +268,8 @@ class MainWindow(QMainWindow):
                 hole_fill=s.hole_fill_enabled,
                 island_threshold=s.island_removal_threshold,
                 crop_padding=s.crop_padding,
+                edge_feather_radius=s.edge_feather_radius,
+                contrast_strength=s.contrast_strength,
             )
 
             self.setWindowTitle(f"Image2STL – {project.name}")
@@ -299,6 +301,8 @@ class MainWindow(QMainWindow):
         s.hole_fill_enabled = self.control_panel.hole_fill_enabled
         s.island_removal_threshold = self.control_panel.island_removal_threshold
         s.crop_padding = self.control_panel.crop_padding
+        s.edge_feather_radius = self.control_panel.edge_feather_radius
+        s.contrast_strength = self.control_panel.contrast_strength
 
     @Slot()
     def _on_settings(self):
@@ -385,6 +389,8 @@ class MainWindow(QMainWindow):
             hole_fill=self.control_panel.hole_fill_enabled,
             island_removal_threshold=self.control_panel.island_removal_threshold,
             crop_padding=self.control_panel.crop_padding,
+            edge_feather_radius=self.control_panel.edge_feather_radius,
+            contrast_strength=self.control_panel.contrast_strength,
             on_success=self._on_preprocess_success,
             on_error=self._on_preprocess_error,
         )

@@ -11,9 +11,14 @@ def _compute_settings_hash(
     hole_fill: bool,
     island_threshold: int,
     crop_padding: int,
+    edge_feather_radius: int = 0,
+    contrast_strength: float = 0.0,
 ) -> str:
     """Compute a short hash of preprocessing parameters for deterministic naming."""
-    key = f"{strength:.3f}|{hole_fill}|{island_threshold}|{crop_padding}"
+    key = (
+        f"{strength:.3f}|{hole_fill}|{island_threshold}|{crop_padding}"
+        f"|{edge_feather_radius}|{contrast_strength:.2f}"
+    )
     return hashlib.sha256(key.encode()).hexdigest()[:8]
 
 
@@ -30,6 +35,8 @@ def preprocess_image(
     island_removal_threshold: int = 500,
     crop_padding: int = 10,
     min_output_size: int = 512,
+    edge_feather_radius: int = 2,
+    contrast_strength: float = 0.0,
 ) -> Path:
     """Isolate the foreground in an image and save the result as RGBA PNG.
 
@@ -43,6 +50,10 @@ def preprocess_image(
         min_output_size: Minimum output image dimension in pixels.  If the
             processed image is smaller than this, it is upscaled using
             high-quality (LANCZOS) resampling so the result is never pixelated.
+        edge_feather_radius: Radius in pixels for alpha edge feathering to
+            smooth mask boundaries (0 = disabled).
+        contrast_strength: Foreground contrast/sharpness enhancement level
+            (0.0 = none, 1.0 = maximum).
 
     Returns:
         Path to the processed RGBA PNG file.
@@ -64,7 +75,8 @@ def preprocess_image(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     settings_hash = _compute_settings_hash(
-        strength, hole_fill, island_removal_threshold, crop_padding
+        strength, hole_fill, island_removal_threshold, crop_padding,
+        edge_feather_radius, contrast_strength,
     )
     output_name = _processed_name(source_path, settings_hash)
     output_path = output_dir / output_name
@@ -101,13 +113,25 @@ def preprocess_image(
         else:
             rgba = rembg_remove(img)
 
-    rgba = _postprocess_mask(rgba, hole_fill, island_removal_threshold, crop_padding, min_output_size)
+    rgba = _postprocess_mask(
+        rgba, hole_fill, island_removal_threshold, crop_padding,
+        min_output_size, edge_feather_radius, contrast_strength,
+    )
     rgba.save(str(output_path), format="PNG")
     return output_path
 
 
-def _postprocess_mask(rgba_image, hole_fill: bool, island_threshold: int, crop_padding: int, min_output_size: int = 512):
-    """Apply mask cleanup, tight crop, square pad, and minimum-size upscale to an RGBA image."""
+def _postprocess_mask(
+    rgba_image,
+    hole_fill: bool,
+    island_threshold: int,
+    crop_padding: int,
+    min_output_size: int = 512,
+    edge_feather_radius: int = 2,
+    contrast_strength: float = 0.0,
+):
+    """Apply mask cleanup, edge refinement, feathering, contrast enhancement,
+    tight crop, square pad, and minimum-size upscale to an RGBA image."""
     try:
         import numpy as np
         from PIL import Image
@@ -123,9 +147,21 @@ def _postprocess_mask(rgba_image, hole_fill: bool, island_threshold: int, crop_p
     if island_threshold > 0:
         cleanup_mask = _remove_small_islands(cleanup_mask, island_threshold)
 
+    # Morphological edge refinement: close then open to smooth jagged edges
+    cleanup_mask = _refine_mask_edges(cleanup_mask)
+
     original_alpha = _smooth_alpha_channel(original_alpha)
     keep_region = cleanup_mask > 0
     arr[:, :, 3] = np.where(keep_region, original_alpha, 0).astype(original_alpha.dtype)
+
+    # Edge feathering: soften alpha transitions at mask boundaries
+    if edge_feather_radius > 0:
+        arr[:, :, 3] = _feather_edges(arr[:, :, 3], edge_feather_radius)
+
+    # Contrast/sharpness enhancement on foreground RGB channels
+    if contrast_strength > 0.0:
+        arr = _enhance_foreground(arr, contrast_strength)
+
     arr = _tight_crop_and_square_pad(arr, crop_padding)
     result = Image.fromarray(arr, mode="RGBA")
 
@@ -158,6 +194,93 @@ def _smooth_alpha_channel(alpha_channel):
             return np.array(pil_alpha).astype(alpha_channel.dtype)
         except (ImportError, ModuleNotFoundError):
             return alpha_channel
+
+
+def _refine_mask_edges(mask):
+    """Smooth jagged mask edges using morphological close then open."""
+    try:
+        from scipy import ndimage  # type: ignore
+        import numpy as np
+
+        struct = ndimage.generate_binary_structure(2, 1)
+        # Close: fill small gaps along edges
+        refined = ndimage.binary_closing(mask > 0, structure=struct, iterations=2)
+        # Open: remove small protrusions along edges
+        refined = ndimage.binary_opening(refined, structure=struct, iterations=1)
+        return (refined * 255).astype(mask.dtype)
+    except (ImportError, ModuleNotFoundError):
+        return mask
+
+
+def _feather_edges(alpha_channel, radius: int):
+    """Apply Gaussian feathering to alpha channel edges for smoother transitions."""
+    try:
+        from scipy import ndimage  # type: ignore
+        import numpy as np
+
+        # Only blur near edges: find boundary pixels first
+        binary = alpha_channel > 0
+        eroded = ndimage.binary_erosion(binary, iterations=max(1, radius))
+        dilated = ndimage.binary_dilation(binary, iterations=max(1, radius))
+        edge_band = dilated & ~eroded
+
+        # Feather sigma is ~80% of the pixel radius for a natural falloff
+        sigma = max(0.5, radius * 0.8)
+        blurred = ndimage.gaussian_filter(alpha_channel.astype(float), sigma=sigma)
+        result = alpha_channel.copy().astype(float)
+        result[edge_band] = blurred[edge_band]
+        return result.clip(0, 255).astype(alpha_channel.dtype)
+    except (ImportError, ModuleNotFoundError):
+        try:
+            import numpy as np
+            from PIL import Image, ImageFilter
+
+            pil_alpha = Image.fromarray(alpha_channel, mode="L")
+            blurred = pil_alpha.filter(ImageFilter.GaussianBlur(radius=max(1, radius)))
+            return np.array(blurred).astype(alpha_channel.dtype)
+        except (ImportError, ModuleNotFoundError):
+            return alpha_channel
+
+
+def _enhance_foreground(arr, strength: float):
+    """Enhance contrast and sharpness of foreground RGB channels.
+
+    Uses unsharp masking on the RGB channels where the alpha channel
+    indicates foreground, improving surface detail for reconstruction.
+    """
+    try:
+        import numpy as np
+        from PIL import Image, ImageFilter
+    except (ImportError, ModuleNotFoundError):
+        return arr
+
+    strength = max(0.0, min(1.0, float(strength)))
+    alpha = arr[:, :, 3]
+    fg_mask = alpha > 0
+
+    if not fg_mask.any():
+        return arr
+
+    rgb = arr[:, :, :3].copy()
+    pil_rgb = Image.fromarray(rgb, mode="RGB")
+
+    # Unsharp mask with strength-scaled parameters:
+    #   radius:    1.5 (subtle) to 3.0 (aggressive) px
+    #   percent:   80% (subtle) to 200% (aggressive) sharpening
+    #   threshold: 4 (subtle, skips low-contrast edges) to 1 (aggressive)
+    usm_radius = 1.5 + strength * 1.5
+    usm_percent = int(80 + strength * 120)
+    usm_threshold = max(1, int(4 - strength * 3))
+    sharpened = pil_rgb.filter(
+        ImageFilter.UnsharpMask(radius=usm_radius, percent=usm_percent, threshold=usm_threshold)
+    )
+    sharp_arr = np.array(sharpened)
+
+    # Only apply enhancement to foreground pixels
+    for c in range(3):
+        arr[:, :, c] = np.where(fg_mask, sharp_arr[:, :, c], arr[:, :, c])
+
+    return arr
 
 
 def _fill_holes(mask):

@@ -165,6 +165,8 @@ class ReconstructionEngine:
         hole_fill: bool = True,
         island_removal_threshold: int = 500,
         crop_padding: int = 10,
+        edge_feather_radius: int = 2,
+        contrast_strength: float = 0.0,
         on_success: Optional[Callable[[List[str], dict], None]] = None,
         on_error: Optional[Callable[[str, str], None]] = None,
     ):
@@ -181,6 +183,8 @@ class ReconstructionEngine:
             hole_fill: Whether to fill holes in the mask.
             island_removal_threshold: Minimum component size to keep.
             crop_padding: Padding (in pixels) around tight crop.
+            edge_feather_radius: Radius in pixels for alpha edge feathering (0 = disabled).
+            contrast_strength: Foreground contrast enhancement (0.0–1.0).
             on_success: Called with (processed_image_paths, stats_dict).
             on_error: Called with (error_code, message).
         """
@@ -196,6 +200,8 @@ class ReconstructionEngine:
             "holeFill": hole_fill,
             "islandRemovalThreshold": island_removal_threshold,
             "cropPadding": crop_padding,
+            "edgeFeatherRadius": edge_feather_radius,
+            "contrastStrength": contrast_strength,
         }
 
         def _run():
