@@ -13,9 +13,12 @@ The implemented MVP delivers core command and data-model behavior from `SPEC.md`
 - [x] Add cancel-operation plumbing and long-running process management
 - [x] Add Desktop UI controls: mode toggle, scale inputs, progress bar, export STL, keyboard shortcuts
 - [x] Add image quality pre-flight checks and WebP/AVIF format support
+- [x] Load and render actual OBJ/STL model geometry in 3D preview control
+- [x] Add assumption-guided reconstruction controls (flat-bottom/symmetry/confidence)
+- [x] Add assumption policy presets (`conservative`/`standard`/`aggressive`) wired across UI/core/CLI
+- [x] Add user-facing assumption result summaries (status/progress info) including preset/threshold transparency
 - [ ] Add installers for Windows/macOS packaging targets
 - [ ] Run platform-specific acceptance testing on real image sets
-- [ ] Load and render actual OBJ/STL model geometry in 3D preview control
 
 ## Suggested Next Execution Order
 
@@ -23,5 +26,14 @@ The implemented MVP delivers core command and data-model behavior from `SPEC.md`
 2. ~~Python inference backend substitution for mock pipeline~~ ✅
 3. ~~Mesh repair and quality controls~~ ✅
 4. ~~Export/preview UX refinement~~ ✅
-5. 3D preview with actual model geometry (replace wireframe cube)
-6. Packaging and acceptance testing
+5. ~~3D preview with actual model geometry (replace wireframe cube)~~ ✅
+6. ~~Assumption-guided reconstruction hardening + presets~~ ✅
+7. Packaging and acceptance testing
+
+## Latest Slice Notes
+
+- Reconstruction assumptions now support policy presets with conservative safety gating.
+- Effective confidence threshold is computed as `max(user_threshold, preset_minimum)` and surfaced in UI summaries.
+- CLI supports `--assumption-preset` and forwards to backend reconstruction commands.
+- Preprocess command import path is hardened for tests that stub only `preprocess_image`.
+- Cross-platform path assertions in tests were normalized (`resolve()`) to avoid macOS `/var` vs `/private/var` mismatches.

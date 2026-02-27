@@ -306,7 +306,7 @@ def check_image_quality(image_paths: list[str]) -> list[dict]:
 
 
 def _run_triposr_local(images: list[str], target: Path) -> dict:
-    """Run TripoSR with the primary capture image; additional captures are reserved for future multi-view tuning."""
+    """Run TripoSR with the strongest primary capture image."""
     dependency_report = _ensure_local_dependencies()
     try:
         import torch
@@ -333,7 +333,7 @@ def _run_triposr_local(images: list[str], target: Path) -> dict:
         raise ModelWeightsUnavailableError(f"Unable to load TripoSR model weights: {exc}") from exc
     if hasattr(model, "to"):
         model = model.to(device)
-    primary_image = images[0]  # TripoSR inference currently runs from the primary capture image.
+    primary_image = _select_primary_image(images)
     _ensure_heif_support()
     _ensure_avif_support()
     with Image.open(primary_image) as src_image:
@@ -351,6 +351,8 @@ def _run_triposr_local(images: list[str], target: Path) -> dict:
     return {
         "vertices": len(getattr(mesh, "vertices", [])),
         "faces": len(getattr(mesh, "faces", [])),
+        "inputImageCount": len(images),
+        "selectedPrimaryImage": str(primary_image),
         "runtime": {
             "device": device,
             "dependenciesOk": dependency_report["ok"],
@@ -360,6 +362,88 @@ def _run_triposr_local(images: list[str], target: Path) -> dict:
             "repoId": "stabilityai/TripoSR",
         },
     }
+
+
+def _select_primary_image(images: list[str]) -> str:
+    """Select the strongest image for single-image local reconstruction.
+
+    Scores candidates by resolution and Laplacian variance (sharpness).
+    Falls back to the first image when dependencies are unavailable.
+    """
+    if not images:
+        raise ValueError("No images provided")
+
+    try:
+        from PIL import Image
+        import numpy as np  # type: ignore
+    except (ImportError, ModuleNotFoundError):
+        return images[0]
+
+    best_path = images[0]
+    best_score = float("-inf")
+    _ensure_heif_support()
+    _ensure_avif_support()
+    for image_path in images:
+        try:
+            with Image.open(image_path) as img:
+                width, height = img.size
+                resolution_score = float(min(width, height))
+                grey = img.convert("L")
+                arr = np.array(grey, dtype=np.float64)
+                if arr.shape[0] < 3 or arr.shape[1] < 3:
+                    sharpness_score = 0.0
+                else:
+                    laplacian = (
+                        arr[:-2, 1:-1] + arr[2:, 1:-1] + arr[1:-1, :-2] + arr[1:-1, 2:] - 4 * arr[1:-1, 1:-1]
+                    )
+                    sharpness_score = float(np.var(laplacian))
+                score = resolution_score + (sharpness_score * 0.1)
+                if score > best_score:
+                    best_score = score
+                    best_path = image_path
+        except (OSError, ValueError):
+            continue
+    return best_path
+
+
+def _apply_reconstruction_assumptions(
+    output_mesh: Path,
+    image_paths: list[str],
+    *,
+    enabled: bool,
+    flat_bottom_enabled: bool,
+    symmetry_enabled: bool,
+    confidence_threshold: float,
+    preset: str,
+) -> dict:
+    """Apply optional assumption-based mesh corrections after reconstruction."""
+    if not enabled:
+        return {
+            "enabled": False,
+            "applied": [],
+            "skipped": ["disabled"],
+            "appliedCount": 0,
+        }
+
+    try:
+        from .assumptions import apply_mesh_assumptions
+    except (ImportError, ModuleNotFoundError) as exc:
+        return {
+            "enabled": True,
+            "applied": [],
+            "skipped": ["assumptions_module_unavailable"],
+            "appliedCount": 0,
+            "detail": str(exc),
+        }
+
+    return apply_mesh_assumptions(
+        output_mesh,
+        image_paths=image_paths,
+        flat_bottom_enabled=flat_bottom_enabled,
+        symmetry_enabled=symmetry_enabled,
+        confidence_threshold=max(0.0, min(1.0, float(confidence_threshold))),
+        preset=str(preset or "standard"),
+    )
 
 
 def _read_meshy_api_key(command: dict) -> str | None:
@@ -453,6 +537,11 @@ def process_command(command: dict) -> list[dict]:
         if validation_error:
             return [validation_error]
         mode = command.get("mode", "local")
+        assumptions_enabled = bool(command.get("assumptionsEnabled", True))
+        assume_flat_bottom = bool(command.get("assumeFlatBottom", True))
+        assume_symmetry = bool(command.get("assumeSymmetry", False))
+        assumption_confidence = float(command.get("assumptionConfidence", 0.75))
+        assumption_preset = str(command.get("assumptionPreset", "standard")).lower()
         op_id = str(operation_id) if operation_id else None
         token = _CURRENT_OPERATION_ID.set(op_id)
         def _cancelled_response() -> list[dict]:
@@ -502,6 +591,17 @@ def process_command(command: dict) -> list[dict]:
             error = make_error("reconstruct", error_code)
             error["detail"] = str(exc)
             return [error]
+
+        assumptions_report = _apply_reconstruction_assumptions(
+            target,
+            command.get("images", []),
+            enabled=assumptions_enabled,
+            flat_bottom_enabled=assume_flat_bottom,
+            symmetry_enabled=assume_symmetry,
+            confidence_threshold=assumption_confidence,
+            preset=assumption_preset,
+        )
+        stats["assumptions"] = assumptions_report
         _cleanup_operation(token, op_id)
         output.append(
             {
@@ -633,14 +733,38 @@ def process_command(command: dict) -> list[dict]:
         crop_padding = int(command.get("cropPadding", 10))
         edge_feather_radius = int(command.get("edgeFeatherRadius", 2))
         contrast_strength = float(command.get("contrastStrength", 0.0))
+        crop_mode = str(command.get("cropMode", "square")).lower()
+        consistency_enabled = bool(command.get("consistencyEnabled", True))
+        consistency_strength = float(command.get("consistencyStrength", 0.5))
+        denoise_strength = float(command.get("denoiseStrength", 0.2))
+        deblur_strength = float(command.get("deblurStrength", 0.2))
+        background_mode = str(command.get("backgroundMode", "transparent")).lower()
+        background_color = str(command.get("backgroundColor", "#FFFFFF"))
         try:
             from .preprocess import preprocess_image
+            try:
+                from .preprocess import build_consistency_reference
+            except ImportError:
+                build_consistency_reference = None
         except ImportError:
             error = make_error("preprocess_images", "REMBG_UNAVAILABLE")
             error["detail"] = "rembg is not installed. Install it with: pip install rembg"
             return [error]
+
+        if crop_mode not in {"square", "original"}:
+            crop_mode = "square"
+        if background_mode not in {"transparent", "solid"}:
+            background_mode = "transparent"
+
+        consistency_reference = None
+        if consistency_enabled and images and build_consistency_reference is not None:
+            try:
+                consistency_reference = build_consistency_reference(Path(images[0]))
+            except (OSError, ValueError, RuntimeError):
+                consistency_reference = None
+
         processed = []
-        warnings: list[dict] = []
+        preprocess_warnings: list[dict] = []
         for image in images:
             try:
                 out = preprocess_image(
@@ -652,6 +776,13 @@ def process_command(command: dict) -> list[dict]:
                     crop_padding=crop_padding,
                     edge_feather_radius=edge_feather_radius,
                     contrast_strength=contrast_strength,
+                    crop_mode=crop_mode,
+                    consistency_strength=consistency_strength,
+                    denoise_strength=denoise_strength,
+                    deblur_strength=deblur_strength,
+                    background_mode=background_mode,
+                    background_color=background_color,
+                    consistency_reference=consistency_reference,
                 )
                 processed.append(str(out))
             except ImportError:
@@ -659,14 +790,14 @@ def process_command(command: dict) -> list[dict]:
                 error["detail"] = "rembg is not installed. Install it with: pip install rembg"
                 return [error]
             except (OSError, ValueError, RuntimeError) as exc:
-                warnings.append({"path": image, "issue": "preprocess_failed", "detail": str(exc)})
+                preprocess_warnings.append({"path": image, "issue": "preprocess_failed", "detail": str(exc)})
         return [
             {
                 "type": "success",
                 "command": "preprocess_images",
                 "processedImages": processed,
-                "warnings": warnings,
-                "stats": {"processed": len(processed), "failed": len(warnings)},
+                "warnings": preprocess_warnings,
+                "stats": {"processed": len(processed), "failed": len(preprocess_warnings)},
             }
         ]
 

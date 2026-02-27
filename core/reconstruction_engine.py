@@ -38,6 +38,11 @@ class ReconstructionEngine:
         output_path: Path,
         mode: str = "local",
         api_key: Optional[str] = None,
+        assumptions_enabled: bool = True,
+        assume_flat_bottom: bool = True,
+        assume_symmetry: bool = False,
+        assumption_confidence: float = 0.75,
+        assumption_preset: str = "standard",
         on_progress: Optional[Callable[[float, str, Optional[int]], None]] = None,
         on_success: Optional[Callable[[str, dict], None]] = None,
         on_error: Optional[Callable[[str, str], None]] = None,
@@ -49,6 +54,11 @@ class ReconstructionEngine:
             output_path: Destination path for the output mesh.
             mode: "local" or "cloud".
             api_key: Meshy API key (cloud mode only).
+            assumptions_enabled: Enable confidence-gated assumption corrections.
+            assume_flat_bottom: Enable flat-bottom assumption.
+            assume_symmetry: Enable symmetry assumption analysis.
+            assumption_confidence: Confidence threshold (0.0–1.0).
+            assumption_preset: Assumption policy preset (conservative/standard/aggressive).
             on_progress: Called with (progress_fraction, status_text, estimated_seconds).
             on_success: Called with (output_path, stats_dict).
             on_error: Called with (error_code, message).
@@ -65,6 +75,11 @@ class ReconstructionEngine:
             "images": images,
             "outputPath": str(output_path),
             "operationId": self._current_operation_id,
+            "assumptionsEnabled": assumptions_enabled,
+            "assumeFlatBottom": assume_flat_bottom,
+            "assumeSymmetry": assume_symmetry,
+            "assumptionConfidence": assumption_confidence,
+            "assumptionPreset": assumption_preset,
         }
         if api_key:
             command["apiKey"] = api_key
@@ -167,6 +182,13 @@ class ReconstructionEngine:
         crop_padding: int = 10,
         edge_feather_radius: int = 2,
         contrast_strength: float = 0.0,
+        crop_mode: str = "square",
+        consistency_enabled: bool = True,
+        consistency_strength: float = 0.5,
+        denoise_strength: float = 0.2,
+        deblur_strength: float = 0.2,
+        background_mode: str = "transparent",
+        background_color: str = "#FFFFFF",
         on_success: Optional[Callable[[List[str], dict], None]] = None,
         on_error: Optional[Callable[[str, str], None]] = None,
     ):
@@ -185,6 +207,13 @@ class ReconstructionEngine:
             crop_padding: Padding (in pixels) around tight crop.
             edge_feather_radius: Radius in pixels for alpha edge feathering (0 = disabled).
             contrast_strength: Foreground contrast enhancement (0.0–1.0).
+            crop_mode: Crop/pad mode ("square" or "original").
+            consistency_enabled: Whether cross-image consistency adjustments are enabled.
+            consistency_strength: Strength of cross-image consistency adjustments (0.0–1.0).
+            denoise_strength: Foreground denoise strength (0.0–1.0).
+            deblur_strength: Foreground deblur/sharpen strength (0.0–1.0).
+            background_mode: Output background mode ("transparent" or "solid").
+            background_color: Solid background color in hex (#RRGGBB) when enabled.
             on_success: Called with (processed_image_paths, stats_dict).
             on_error: Called with (error_code, message).
         """
@@ -202,6 +231,13 @@ class ReconstructionEngine:
             "cropPadding": crop_padding,
             "edgeFeatherRadius": edge_feather_radius,
             "contrastStrength": contrast_strength,
+            "cropMode": crop_mode,
+            "consistencyEnabled": consistency_enabled,
+            "consistencyStrength": consistency_strength,
+            "denoiseStrength": denoise_strength,
+            "deblurStrength": deblur_strength,
+            "backgroundMode": background_mode,
+            "backgroundColor": background_color,
         }
 
         def _run():

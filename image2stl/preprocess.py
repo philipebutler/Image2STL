@@ -13,11 +13,19 @@ def _compute_settings_hash(
     crop_padding: int,
     edge_feather_radius: int = 0,
     contrast_strength: float = 0.0,
+    crop_mode: str = "square",
+    consistency_strength: float = 0.5,
+    denoise_strength: float = 0.2,
+    deblur_strength: float = 0.2,
+    background_mode: str = "transparent",
+    background_color: str = "#FFFFFF",
 ) -> str:
     """Compute a short hash of preprocessing parameters for deterministic naming."""
     key = (
         f"{strength:.3f}|{hole_fill}|{island_threshold}|{crop_padding}"
-        f"|{edge_feather_radius}|{contrast_strength:.2f}"
+        f"|{edge_feather_radius}|{contrast_strength:.2f}|{crop_mode}"
+        f"|{consistency_strength:.2f}|{denoise_strength:.2f}|{deblur_strength:.2f}"
+        f"|{background_mode}|{background_color.upper()}"
     )
     return hashlib.sha256(key.encode()).hexdigest()[:8]
 
@@ -37,6 +45,13 @@ def preprocess_image(
     min_output_size: int = 512,
     edge_feather_radius: int = 2,
     contrast_strength: float = 0.0,
+    crop_mode: str = "square",
+    consistency_strength: float = 0.5,
+    denoise_strength: float = 0.2,
+    deblur_strength: float = 0.2,
+    background_mode: str = "transparent",
+    background_color: str = "#FFFFFF",
+    consistency_reference: dict | None = None,
 ) -> Path:
     """Isolate the foreground in an image and save the result as RGBA PNG.
 
@@ -54,6 +69,14 @@ def preprocess_image(
             smooth mask boundaries (0 = disabled).
         contrast_strength: Foreground contrast/sharpness enhancement level
             (0.0 = none, 1.0 = maximum).
+        crop_mode: Crop mode ("square" or "original").
+        consistency_strength: Cross-image consistency strength (0.0–1.0).
+        denoise_strength: Foreground denoise strength (0.0–1.0).
+        deblur_strength: Foreground deblur/sharpen strength (0.0–1.0).
+        background_mode: Output background mode ("transparent" or "solid").
+        background_color: Solid background color in #RRGGBB format.
+        consistency_reference: Optional shared reference stats for cross-image
+            consistency across a batch.
 
     Returns:
         Path to the processed RGBA PNG file.
@@ -76,7 +99,9 @@ def preprocess_image(
     output_dir.mkdir(parents=True, exist_ok=True)
     settings_hash = _compute_settings_hash(
         strength, hole_fill, island_removal_threshold, crop_padding,
-        edge_feather_radius, contrast_strength,
+        edge_feather_radius, contrast_strength, crop_mode,
+        consistency_strength, denoise_strength, deblur_strength,
+        background_mode, background_color,
     )
     output_name = _processed_name(source_path, settings_hash)
     output_path = output_dir / output_name
@@ -116,6 +141,13 @@ def preprocess_image(
     rgba = _postprocess_mask(
         rgba, hole_fill, island_removal_threshold, crop_padding,
         min_output_size, edge_feather_radius, contrast_strength,
+        crop_mode=crop_mode,
+        consistency_strength=consistency_strength,
+        denoise_strength=denoise_strength,
+        deblur_strength=deblur_strength,
+        background_mode=background_mode,
+        background_color=background_color,
+        consistency_reference=consistency_reference,
     )
     rgba.save(str(output_path), format="PNG")
     return output_path
@@ -129,6 +161,13 @@ def _postprocess_mask(
     min_output_size: int = 512,
     edge_feather_radius: int = 2,
     contrast_strength: float = 0.0,
+    crop_mode: str = "square",
+    consistency_strength: float = 0.5,
+    denoise_strength: float = 0.2,
+    deblur_strength: float = 0.2,
+    background_mode: str = "transparent",
+    background_color: str = "#FFFFFF",
+    consistency_reference: dict | None = None,
 ):
     """Apply mask cleanup, edge refinement, feathering, contrast enhancement,
     tight crop, square pad, and minimum-size upscale to an RGBA image."""
@@ -162,7 +201,13 @@ def _postprocess_mask(
     if contrast_strength > 0.0:
         arr = _enhance_foreground(arr, contrast_strength)
 
-    arr = _tight_crop_and_square_pad(arr, crop_padding)
+    arr = _apply_cross_image_consistency(arr, consistency_reference, consistency_strength)
+    arr = _denoise_foreground(arr, denoise_strength)
+    if deblur_strength > 0.0:
+        arr = _enhance_foreground(arr, deblur_strength)
+
+    arr = _crop_and_pad(arr, crop_padding, crop_mode)
+    arr = _apply_background_mode(arr, background_mode, background_color)
     result = Image.fromarray(arr, mode="RGBA")
 
     # Upscale to min_output_size if the result is too small so that the
@@ -171,8 +216,10 @@ def _postprocess_mask(
     if min_output_size > 0:
         w, h = result.size
         if w < min_output_size or h < min_output_size:
-            new_size = max(min_output_size, max(w, h))
-            result = result.resize((new_size, new_size), Image.Resampling.LANCZOS)
+            scale = max(min_output_size / max(w, 1), min_output_size / max(h, 1))
+            new_w = max(min_output_size, int(round(w * scale)))
+            new_h = max(min_output_size, int(round(h * scale)))
+            result = result.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
     return result
 
@@ -283,6 +330,102 @@ def _enhance_foreground(arr, strength: float):
     return arr
 
 
+def build_consistency_reference(source_path: Path) -> dict | None:
+    """Build reference image statistics used for cross-image consistency."""
+    try:
+        import numpy as np
+        from PIL import Image
+    except (ImportError, ModuleNotFoundError):
+        return None
+
+    with Image.open(source_path) as img:
+        rgb = np.array(img.convert("RGB")).astype(np.float32)
+    return {"mean": rgb.mean(axis=(0, 1)), "std": rgb.std(axis=(0, 1)) + 1e-6}
+
+
+def _apply_cross_image_consistency(arr, reference: dict | None, strength: float):
+    """Apply light color normalization toward a shared reference image profile."""
+    if not reference or strength <= 0.0:
+        return arr
+    try:
+        import numpy as np
+    except (ImportError, ModuleNotFoundError):
+        return arr
+
+    strength = max(0.0, min(1.0, float(strength)))
+    rgb = arr[:, :, :3].astype(np.float32)
+    alpha = arr[:, :, 3] > 0
+    if not alpha.any():
+        return arr
+
+    fg = rgb[alpha]
+    current_mean = fg.mean(axis=0)
+    current_std = fg.std(axis=0) + 1e-6
+    ref_mean = np.array(reference.get("mean", current_mean), dtype=np.float32)
+    ref_std = np.array(reference.get("std", current_std), dtype=np.float32)
+
+    normalized = ((fg - current_mean) / current_std) * ref_std + ref_mean
+    blended = fg * (1.0 - strength) + normalized * strength
+    rgb[alpha] = blended
+    arr[:, :, :3] = rgb.clip(0, 255).astype(arr.dtype)
+    return arr
+
+
+def _denoise_foreground(arr, strength: float):
+    """Reduce foreground grain while preserving boundaries."""
+    if strength <= 0.0:
+        return arr
+    try:
+        import numpy as np
+        from PIL import Image, ImageFilter
+    except (ImportError, ModuleNotFoundError):
+        return arr
+
+    strength = max(0.0, min(1.0, float(strength)))
+    radius = 0.5 + strength * 1.5
+    alpha = arr[:, :, 3] > 0
+    if not alpha.any():
+        return arr
+
+    rgb = arr[:, :, :3]
+    smoothed = np.array(
+        Image.fromarray(rgb, mode="RGB").filter(ImageFilter.GaussianBlur(radius=radius))
+    )
+    for c in range(3):
+        arr[:, :, c] = np.where(alpha, smoothed[:, :, c], arr[:, :, c])
+    return arr
+
+
+def _parse_hex_color(color: str) -> tuple[int, int, int]:
+    value = (color or "#FFFFFF").strip()
+    if len(value) == 7 and value.startswith("#"):
+        try:
+            return int(value[1:3], 16), int(value[3:5], 16), int(value[5:7], 16)
+        except ValueError:
+            pass
+    return (255, 255, 255)
+
+
+def _apply_background_mode(arr, background_mode: str, background_color: str):
+    """Optionally flatten transparent background to a solid color."""
+    if (background_mode or "transparent").lower() != "solid":
+        return arr
+    try:
+        import numpy as np
+    except (ImportError, ModuleNotFoundError):
+        return arr
+
+    bg_r, bg_g, bg_b = _parse_hex_color(background_color)
+    alpha = arr[:, :, 3].astype(np.float32) / 255.0
+    inv_alpha = 1.0 - alpha
+
+    for channel, bg in enumerate((bg_r, bg_g, bg_b)):
+        fg = arr[:, :, channel].astype(np.float32)
+        arr[:, :, channel] = (fg * alpha + bg * inv_alpha).clip(0, 255).astype(arr.dtype)
+    arr[:, :, 3] = 255
+    return arr
+
+
 def _fill_holes(mask):
     """Fill holes in the alpha mask using scipy morphological operations."""
     try:
@@ -314,8 +457,8 @@ def _remove_small_islands(mask, threshold: int):
         return mask
 
 
-def _tight_crop_and_square_pad(arr, padding: int):
-    """Crop to the bounding box of non-transparent pixels and pad to square."""
+def _crop_and_pad(arr, padding: int, crop_mode: str = "square"):
+    """Crop to foreground bounds and optionally pad to square framing."""
     import numpy as np
 
     mask = arr[:, :, 3] > 0
@@ -336,6 +479,9 @@ def _tight_crop_and_square_pad(arr, padding: int):
 
     cropped = arr[rmin : rmax + 1, cmin : cmax + 1]
     ch, cw = cropped.shape[:2]
+
+    if (crop_mode or "square").lower() == "original":
+        return cropped
 
     size = max(ch, cw)
     if ch == cw:

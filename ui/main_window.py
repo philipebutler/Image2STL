@@ -55,6 +55,8 @@ class MainWindow(QMainWindow):
         self._processed_source_paths: list[str] = []
         # Tracks the actual processed file paths returned by the engine.
         self._processed_image_paths: list[str] = []
+        # Mapping from current source image path -> processed image path.
+        self._processed_preview_map: dict[str, str] = {}
         # When True, a preprocess run triggered automatically should chain
         # directly into reconstruction once it completes.
         self._preprocess_then_reconstruct: bool = False
@@ -212,6 +214,7 @@ class MainWindow(QMainWindow):
                 self._reconstructed_model_path = None
                 self._processed_source_paths = []
                 self._processed_image_paths = []
+                self._processed_preview_map = {}
                 self.viewer_3d.reset_placeholder()
                 self.control_panel.enable_export(False)
                 self.control_panel.set_processed_count(0)
@@ -252,6 +255,7 @@ class MainWindow(QMainWindow):
             self._processed_image_paths = processed_abs
 
             preview_map = self._build_processed_preview_map(image_paths, processed_abs)
+            self._processed_preview_map = dict(preview_map)
             self._processed_source_paths = list(preview_map.keys())
             self.image_gallery.mark_processed(
                 self._processed_source_paths,
@@ -270,6 +274,18 @@ class MainWindow(QMainWindow):
                 crop_padding=s.crop_padding,
                 edge_feather_radius=s.edge_feather_radius,
                 contrast_strength=s.contrast_strength,
+                crop_mode=s.crop_mode,
+                consistency_enabled=s.consistency_enabled,
+                consistency_strength=s.consistency_strength,
+                denoise_strength=s.denoise_strength,
+                deblur_strength=s.deblur_strength,
+                background_mode=s.background_mode,
+                background_color=s.background_color,
+                assumptions_enabled=s.assumptions_enabled,
+                assume_flat_bottom=s.assume_flat_bottom,
+                assume_symmetry=s.assume_symmetry,
+                assumption_confidence=s.assumption_confidence,
+                assumption_preset=s.assumption_preset,
             )
 
             self.setWindowTitle(f"Image2STL – {project.name}")
@@ -303,6 +319,18 @@ class MainWindow(QMainWindow):
         s.crop_padding = self.control_panel.crop_padding
         s.edge_feather_radius = self.control_panel.edge_feather_radius
         s.contrast_strength = self.control_panel.contrast_strength
+        s.crop_mode = self.control_panel.crop_mode
+        s.consistency_enabled = self.control_panel.consistency_enabled
+        s.consistency_strength = self.control_panel.consistency_strength
+        s.denoise_strength = self.control_panel.denoise_strength
+        s.deblur_strength = self.control_panel.deblur_strength
+        s.background_mode = self.control_panel.background_mode
+        s.background_color = self.control_panel.background_color
+        s.assumptions_enabled = self.control_panel.assumptions_enabled
+        s.assume_flat_bottom = self.control_panel.assume_flat_bottom
+        s.assume_symmetry = self.control_panel.assume_symmetry
+        s.assumption_confidence = self.control_panel.assumption_confidence
+        s.assumption_preset = self.control_panel.assumption_preset
 
     @Slot()
     def _on_settings(self):
@@ -340,6 +368,7 @@ class MainWindow(QMainWindow):
         if self._processed_source_paths or self._processed_image_paths:
             self._processed_source_paths = []
             self._processed_image_paths = []
+            self._processed_preview_map = {}
             self.image_gallery.mark_processed([], processed_preview_map={})
             self.control_panel.set_processed_count(0)
 
@@ -353,6 +382,9 @@ class MainWindow(QMainWindow):
                     project.images.append(rel)
                 except ValueError:
                     project.images.append(fp)
+
+            # Any image set change invalidates previously cached processed files.
+            project.processed_images = []
 
     # ------------------------------------------------------------------
     # Foreground isolation / preprocessing
@@ -379,6 +411,7 @@ class MainWindow(QMainWindow):
 
         self.progress_widget.reset()
         self.progress_widget.setVisible(True)
+        self.progress_widget.clear_info()
         self.control_panel.set_processing(True)
         self.status_bar.showMessage("Isolating foreground…")
 
@@ -391,6 +424,13 @@ class MainWindow(QMainWindow):
             crop_padding=self.control_panel.crop_padding,
             edge_feather_radius=self.control_panel.edge_feather_radius,
             contrast_strength=self.control_panel.contrast_strength,
+            crop_mode=self.control_panel.crop_mode,
+            consistency_enabled=self.control_panel.consistency_enabled,
+            consistency_strength=self.control_panel.consistency_strength,
+            denoise_strength=self.control_panel.denoise_strength,
+            deblur_strength=self.control_panel.deblur_strength,
+            background_mode=self.control_panel.background_mode,
+            background_color=self.control_panel.background_color,
             on_success=self._on_preprocess_success,
             on_error=self._on_preprocess_error,
         )
@@ -422,6 +462,7 @@ class MainWindow(QMainWindow):
         self._processed_image_paths = processed_paths
 
         preview_map = self._build_processed_preview_map(images, processed_paths)
+        self._processed_preview_map = dict(preview_map)
         if len(preview_map) != len(processed_paths):
             logger.warning(
                 "Mapped %d processed preview(s) from %d processed image(s).",
@@ -534,8 +575,21 @@ class MainWindow(QMainWindow):
     def _resolve_reconstruction_images(self) -> list[str]:
         """Return the correct image list based on source selector and availability."""
         source = self.control_panel.preprocess_source
-        if source == "processed" and self._processed_image_paths:
-            return self._processed_image_paths
+        if source == "processed":
+            mapped = [
+                processed
+                for src in self.image_gallery.image_paths
+                for processed in [self._processed_preview_map.get(src)]
+                if processed and Path(processed).exists()
+            ]
+            if mapped:
+                self._processed_image_paths = mapped
+                return mapped
+
+            existing = [p for p in self._processed_image_paths if Path(p).exists()]
+            if existing:
+                self._processed_image_paths = existing
+                return existing
         return self.image_gallery.image_paths
 
     @Slot()
@@ -556,6 +610,22 @@ class MainWindow(QMainWindow):
 
         # Use resolved source set (original or already-processed)
         source_images = self._resolve_reconstruction_images()
+        if self.control_panel.preprocess_source == "processed" and len(source_images) != len(images):
+            QMessageBox.warning(
+                self,
+                "Processed images incomplete",
+                "Processed source is selected, but not all loaded images have a processed counterpart. "
+                "Run Foreground Isolation again or switch Source to Original.",
+            )
+            return
+        if len(source_images) < 3:
+            QMessageBox.warning(
+                self,
+                "Not enough reconstruction inputs",
+                "The selected source set contains fewer than 3 images. "
+                "Run preprocessing again or switch Source to Original.",
+            )
+            return
         self._start_reconstruction(source_images)
 
     def _start_reconstruction(self, images: list[str]):
@@ -572,14 +642,23 @@ class MainWindow(QMainWindow):
 
         self.progress_widget.reset()
         self.progress_widget.setVisible(True)
+        self.progress_widget.clear_info()
         self.control_panel.set_processing(True)
-        self.status_bar.showMessage(f"Generating 3D model ({mode} mode)…")
+        source_mode = self.control_panel.preprocess_source
+        self.status_bar.showMessage(
+            f"Generating 3D model ({mode} mode, source: {source_mode}, images: {len(images)})…"
+        )
 
         self.reconstruction_engine.reconstruct(
             images=images,
             output_path=output_path,
             mode=mode,
             api_key=api_key,
+            assumptions_enabled=self.control_panel.assumptions_enabled,
+            assume_flat_bottom=self.control_panel.assume_flat_bottom,
+            assume_symmetry=self.control_panel.assume_symmetry,
+            assumption_confidence=self.control_panel.assumption_confidence,
+            assumption_preset=self.control_panel.assumption_preset,
             on_progress=self._on_engine_progress,
             on_success=self._on_engine_success,
             on_error=self._on_engine_error,
@@ -614,7 +693,7 @@ class MainWindow(QMainWindow):
         self.progress_widget.set_progress(fraction, status, None if estimated_seconds < 0 else estimated_seconds)
 
     def _on_engine_success(self, output_path_str: str, stats: dict):
-        payload = json.dumps({"output_path": output_path_str})
+        payload = json.dumps({"output_path": output_path_str, "stats": stats or {}})
         QMetaObject.invokeMethod(
             self,
             "_handle_success",
@@ -629,6 +708,8 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             parsed = {}
         output_path_str = str(parsed.get("output_path", ""))
+        stats_raw = parsed.get("stats")
+        stats = stats_raw if isinstance(stats_raw, dict) else {}
         self._reconstructed_model_path = Path(output_path_str) if output_path_str else None
         self.progress_widget.set_complete()
         self.control_panel.set_processing(False)
@@ -638,7 +719,13 @@ class MainWindow(QMainWindow):
         if not loaded:
             self.viewer_3d.reset_placeholder()
         self.control_panel.enable_export(self._reconstructed_model_path is not None)
-        self.status_bar.showMessage("Reconstruction complete. Ready for export.")
+        assumption_suffix = self._format_assumption_status(stats)
+        assumption_info = self._format_assumption_info(stats)
+        if assumption_info:
+            self.progress_widget.show_info(assumption_info)
+        else:
+            self.progress_widget.clear_info()
+        self.status_bar.showMessage(f"Reconstruction complete. Ready for export.{assumption_suffix}")
 
         if self.project_manager.current_project and self._reconstructed_model_path:
             try:
@@ -647,6 +734,65 @@ class MainWindow(QMainWindow):
                 self.project_manager.save_current_project()
             except Exception:
                 pass
+
+    def _format_assumption_status(self, stats: dict) -> str:
+        """Build a concise status suffix for assumption postprocessing results."""
+        assumptions = stats.get("assumptions") if isinstance(stats, dict) else None
+        if not isinstance(assumptions, dict):
+            return ""
+
+        preset = str(assumptions.get("preset", "")).strip().lower()
+        threshold_raw = assumptions.get("effectiveConfidenceThreshold")
+        threshold_text = ""
+        try:
+            threshold_text = f" @ {float(threshold_raw):.2f}"
+        except (TypeError, ValueError):
+            threshold_text = ""
+        preset_text = f" [{preset}{threshold_text}]" if preset else ""
+
+        if not assumptions.get("enabled", False):
+            return " Assumptions: off"
+
+        applied = assumptions.get("applied", [])
+        if isinstance(applied, list) and applied:
+            applied_names = ", ".join(str(name) for name in applied)
+            return f" Assumptions applied: {applied_names}{preset_text}"
+
+        skipped = assumptions.get("skipped", [])
+        if isinstance(skipped, list) and skipped:
+            return f" Assumptions: skipped{preset_text}"
+
+        return f" Assumptions: none{preset_text}"
+
+    def _format_assumption_info(self, stats: dict) -> str:
+        """Build a user-facing assumptions summary for the progress panel."""
+        assumptions = stats.get("assumptions") if isinstance(stats, dict) else None
+        if not isinstance(assumptions, dict):
+            return ""
+
+        preset = str(assumptions.get("preset", "")).strip().lower()
+        threshold_raw = assumptions.get("effectiveConfidenceThreshold")
+        detail_parts = []
+        if preset:
+            detail_parts.append(f"preset={preset}")
+        try:
+            detail_parts.append(f"threshold={float(threshold_raw):.2f}")
+        except (TypeError, ValueError):
+            pass
+        detail_suffix = f" ({', '.join(detail_parts)})" if detail_parts else ""
+
+        if not assumptions.get("enabled", False):
+            return "Assumption postprocessing disabled"
+
+        applied = assumptions.get("applied", [])
+        skipped = assumptions.get("skipped", [])
+
+        if isinstance(applied, list) and applied:
+            names = ", ".join(str(name) for name in applied)
+            return f"Assumptions applied: {names}{detail_suffix}"
+        if isinstance(skipped, list) and skipped:
+            return f"Assumptions evaluated but skipped by confidence/safety gates{detail_suffix}"
+        return f"Assumptions evaluated; no corrections were needed{detail_suffix}"
 
     def _on_engine_error(self, error_code: str, message: str):
         payload = json.dumps({"error_code": error_code, "message": message})

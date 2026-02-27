@@ -344,3 +344,21 @@ python -m image2stl.cli reconstruct-project \
   --auto-isolate-foreground \
   --preprocess-strength 0.6
 ```
+
+Reconstruct with assumption tuning (flat bottom + symmetry + preset policy):
+
+```bash
+python -m image2stl.cli reconstruct-project \
+  --project-dir /path/to/MyProject \
+  --assume-symmetry \
+  --assumption-preset aggressive \
+  --assumption-confidence 0.70
+```
+
+Assumption options:
+
+- `--no-assumptions` disables assumption postprocessing.
+- `--no-assume-flat-bottom` disables the flat-bottom correction.
+- `--assume-symmetry` enables conservative symmetry correction.
+- `--assumption-preset {conservative,standard,aggressive}` controls correction strength and safety limits.
+- `--assumption-confidence <0..1>` sets the minimum confidence gate (effective threshold is max of this value and preset minimum).

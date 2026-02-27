@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPixmap, QDragEnterEvent, QDropEvent
+from PySide6.QtGui import QPixmap, QDragEnterEvent, QDropEvent, QImage
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -112,7 +112,7 @@ class _ImageTile(QFrame):
         self._load_thumbnail(self._display_file_path)
 
     def _load_thumbnail(self, file_path: str):
-        pixmap = QPixmap(file_path)
+        pixmap = self._decode_thumbnail_pixmap(file_path)
         if not pixmap.isNull():
             self._thumb.clear()
             pixmap = pixmap.scaled(
@@ -126,6 +126,38 @@ class _ImageTile(QFrame):
             self._thumb.setPixmap(QPixmap())
             self._thumb.setText("(preview\nunavailable)")
             self._thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    @staticmethod
+    def _decode_thumbnail_pixmap(file_path: str) -> QPixmap:
+        """Decode thumbnail pixmap with Pillow fallback for optional formats.
+
+        Primary path uses Qt image readers. If that fails (commonly for
+        HEIC/HEIF/AVIF without Qt codec plugins), fall back to Pillow decode.
+        """
+        pixmap = QPixmap(file_path)
+        if not pixmap.isNull():
+            return pixmap
+
+        try:
+            from PIL import Image
+
+            # Register optional codecs if available for Pillow decode path.
+            from image2stl.engine import _ensure_heif_support, _ensure_avif_support
+
+            _ensure_heif_support()
+            _ensure_avif_support()
+
+            with Image.open(file_path) as img:
+                rgba = img.convert("RGBA")
+                qimage = QImage(
+                    rgba.tobytes("raw", "RGBA"),
+                    int(rgba.width),
+                    int(rgba.height),
+                    QImage.Format.Format_RGBA8888,
+                ).copy()
+            return QPixmap.fromImage(qimage)
+        except Exception:
+            return QPixmap()
 
 
 class ImageGallery(QWidget):

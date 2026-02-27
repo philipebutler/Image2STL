@@ -6,6 +6,7 @@ import tempfile
 import threading
 import time
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -33,7 +34,7 @@ class TestProjectManager(unittest.TestCase):
         custom_dir = self.base / "custom"
         custom_dir.mkdir()
         project = self.pm.create_project("CustomScan", project_dir=custom_dir)
-        self.assertEqual(project.project_path.parent, custom_dir)
+        self.assertEqual(project.project_path.parent.resolve(), custom_dir.resolve())
 
     def test_open_project(self):
         created = self.pm.create_project("OpenTest")
@@ -83,7 +84,7 @@ class TestProjectManager(unittest.TestCase):
         time.sleep(0.01)
         second.project_path.touch()
         projects = self.pm.list_projects()
-        self.assertEqual(projects[0], second.project_path)
+        self.assertEqual(projects[0].resolve(), second.project_path.resolve())
 
     def test_delete_project(self):
         project = self.pm.create_project("DeleteTest")
@@ -183,6 +184,37 @@ class TestReconstructionEngine(unittest.TestCase):
 
         self.assertIn(0.5, progress_values)
 
+    def test_reconstruct_forwards_assumption_options(self):
+        engine = ReconstructionEngine()
+        seen_command = {}
+        done = threading.Event()
+
+        def _fake_process(command):
+            seen_command.update(command)
+            return [{"type": "success", "outputPath": "/tmp/out.obj", "stats": {}}]
+
+        def _on_success(path, stats):
+            done.set()
+
+        with patch("core.reconstruction_engine.process_command", side_effect=_fake_process):
+            engine.reconstruct(
+                images=["a.jpg", "b.jpg", "c.jpg"],
+                output_path=Path("/tmp/out.obj"),
+                assumptions_enabled=False,
+                assume_flat_bottom=False,
+                assume_symmetry=True,
+                assumption_confidence=0.9,
+                assumption_preset="aggressive",
+                on_success=_on_success,
+            )
+            done.wait(timeout=5)
+
+        self.assertEqual(seen_command.get("assumptionsEnabled"), False)
+        self.assertEqual(seen_command.get("assumeFlatBottom"), False)
+        self.assertEqual(seen_command.get("assumeSymmetry"), True)
+        self.assertAlmostEqual(float(seen_command.get("assumptionConfidence", 0.0)), 0.9)
+        self.assertEqual(seen_command.get("assumptionPreset"), "aggressive")
+
     def test_thread_cleared_after_completion(self):
         engine = ReconstructionEngine()
         done = threading.Event()
@@ -280,6 +312,86 @@ class TestReconstructionEngine(unittest.TestCase):
             engine.cancel()
 
         self.assertIn("cancel", commands_seen)
+
+
+class TestProgressWidget(unittest.TestCase):
+    def test_show_and_clear_info(self):
+        try:
+            import os
+            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+            from PySide6.QtWidgets import QApplication
+        except Exception:
+            self.skipTest("PySide6/Qt unavailable")
+
+        from ui.widgets.progress_widget import ProgressWidget
+
+        app = QApplication.instance() or QApplication([])
+        widget = ProgressWidget()
+
+        widget.show_info("Assumptions applied: flat_bottom")
+        self.assertFalse(widget._info_label.isHidden())
+        self.assertIn("Assumptions applied", widget._info_label.text())
+
+        widget.clear_info()
+        self.assertTrue(widget._info_label.isHidden())
+
+        # Keep reference to avoid linter claiming unused variable
+        self.assertIsNotNone(app)
+
+
+class TestMainWindowAssumptionFormatting(unittest.TestCase):
+    def test_format_assumption_info_includes_preset_and_threshold(self):
+        try:
+            from ui.main_window import MainWindow
+        except Exception:
+            self.skipTest("MainWindow dependencies unavailable")
+
+        stats = {
+            "assumptions": {
+                "enabled": True,
+                "applied": ["flat_bottom"],
+                "preset": "aggressive",
+                "effectiveConfidenceThreshold": 0.8,
+            }
+        }
+
+        text = MainWindow._format_assumption_info(object(), stats)
+        self.assertIn("Assumptions applied: flat_bottom", text)
+        self.assertIn("preset=aggressive", text)
+        self.assertIn("threshold=0.80", text)
+
+
+class TestMainWindowSourceResolution(unittest.TestCase):
+    def test_resolve_reconstruction_images_prefers_current_processed_mapping(self):
+        try:
+            from ui.main_window import MainWindow
+        except Exception:
+            self.skipTest("MainWindow dependencies unavailable")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            src1 = base / "a.jpg"
+            src2 = base / "b.jpg"
+            src3 = base / "c.jpg"
+            proc1 = base / "a_processed.png"
+            proc2 = base / "b_processed.png"
+            proc3 = base / "c_processed.png"
+            for path in (src1, src2, src3, proc1, proc2, proc3):
+                path.write_bytes(b"x")
+
+            fake_window = SimpleNamespace(
+                control_panel=SimpleNamespace(preprocess_source="processed"),
+                image_gallery=SimpleNamespace(image_paths=[str(src1), str(src2), str(src3)]),
+                _processed_preview_map={
+                    str(src1): str(proc1),
+                    str(src2): str(proc2),
+                    str(src3): str(proc3),
+                },
+                _processed_image_paths=["/stale/old1.png", "/stale/old2.png"],
+            )
+
+            resolved = MainWindow._resolve_reconstruction_images(fake_window)
+            self.assertEqual(resolved, [str(proc1), str(proc2), str(proc3)])
 
 
 if __name__ == "__main__":

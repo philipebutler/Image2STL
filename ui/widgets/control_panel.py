@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QGroupBox,
     QFrame,
+    QLineEdit,
 )
 
 
@@ -55,12 +56,38 @@ class ControlPanel(QWidget):
     def scale_axis(self) -> str:
         return self._axis_combo.currentText()
 
+    @property
+    def assumptions_enabled(self) -> bool:
+        return self._assumptions_enabled_cb.isChecked()
+
+    @property
+    def assume_flat_bottom(self) -> bool:
+        return self._assume_flat_bottom_cb.isChecked()
+
+    @property
+    def assume_symmetry(self) -> bool:
+        return self._assume_symmetry_cb.isChecked()
+
+    @property
+    def assumption_confidence(self) -> float:
+        return self._assumption_confidence_spin.value()
+
+    @property
+    def assumption_preset(self) -> str:
+        value = self._assumption_preset_combo.currentText().strip().lower()
+        return value if value in {"conservative", "standard", "aggressive"} else "standard"
+
     def set_processing(self, is_processing: bool):
         """Enable/disable controls during reconstruction or preprocessing."""
         self._generate_btn.setEnabled(not is_processing)
         self._cancel_btn.setVisible(is_processing)
         self._export_btn.setEnabled(not is_processing)
         self._preprocess_btn.setEnabled(not is_processing)
+        self._assumptions_enabled_cb.setEnabled(not is_processing)
+        self._assume_flat_bottom_cb.setEnabled(not is_processing)
+        self._assume_symmetry_cb.setEnabled(not is_processing)
+        self._assumption_confidence_spin.setEnabled(not is_processing)
+        self._assumption_preset_combo.setEnabled(not is_processing)
 
     def enable_export(self, enabled: bool = True):
         """Enable or disable the Export STL button."""
@@ -103,6 +130,37 @@ class ControlPanel(QWidget):
     def contrast_strength(self) -> float:
         return self._contrast_spin.value()
 
+    @property
+    def crop_mode(self) -> str:
+        return "original" if self._crop_mode_combo.currentIndex() == 1 else "square"
+
+    @property
+    def consistency_enabled(self) -> bool:
+        return self._consistency_cb.isChecked()
+
+    @property
+    def consistency_strength(self) -> float:
+        return self._consistency_spin.value()
+
+    @property
+    def denoise_strength(self) -> float:
+        return self._denoise_spin.value()
+
+    @property
+    def deblur_strength(self) -> float:
+        return self._deblur_spin.value()
+
+    @property
+    def background_mode(self) -> str:
+        return "solid" if self._background_mode_combo.currentIndex() == 1 else "transparent"
+
+    @property
+    def background_color(self) -> str:
+        text = self._background_color_input.text().strip().upper()
+        if len(text) == 7 and text.startswith("#"):
+            return text
+        return "#FFFFFF"
+
     def set_processed_count(self, count: int):
         """Update the 'N processed' label in the isolation group."""
         if count > 0:
@@ -122,6 +180,18 @@ class ControlPanel(QWidget):
         crop_padding: int,
         edge_feather_radius: int = 2,
         contrast_strength: float = 0.0,
+        crop_mode: str = "square",
+        consistency_enabled: bool = True,
+        consistency_strength: float = 0.5,
+        denoise_strength: float = 0.2,
+        deblur_strength: float = 0.2,
+        background_mode: str = "transparent",
+        background_color: str = "#FFFFFF",
+        assumptions_enabled: bool = True,
+        assume_flat_bottom: bool = True,
+        assume_symmetry: bool = False,
+        assumption_confidence: float = 0.75,
+        assumption_preset: str = "standard",
     ):
         """Restore isolation settings from a saved project into the UI controls.
 
@@ -143,6 +213,19 @@ class ControlPanel(QWidget):
         self._crop_padding_spin.setValue(crop_padding)
         self._edge_feather_spin.setValue(edge_feather_radius)
         self._contrast_spin.setValue(contrast_strength)
+        self._crop_mode_combo.setCurrentIndex(1 if crop_mode == "original" else 0)
+        self._consistency_cb.setChecked(consistency_enabled)
+        self._consistency_spin.setValue(consistency_strength)
+        self._denoise_spin.setValue(denoise_strength)
+        self._deblur_spin.setValue(deblur_strength)
+        self._background_mode_combo.setCurrentIndex(1 if background_mode == "solid" else 0)
+        self._background_color_input.setText(background_color if background_color else "#FFFFFF")
+        self._assumptions_enabled_cb.setChecked(assumptions_enabled)
+        self._assume_flat_bottom_cb.setChecked(assume_flat_bottom)
+        self._assume_symmetry_cb.setChecked(assume_symmetry)
+        self._assumption_confidence_spin.setValue(assumption_confidence)
+        preset_idx = {"conservative": 0, "standard": 1, "aggressive": 2}.get(assumption_preset, 1)
+        self._assumption_preset_combo.setCurrentIndex(preset_idx)
 
     # ------------------------------------------------------------------
     # Internal UI build
@@ -196,6 +279,48 @@ class ControlPanel(QWidget):
         scale_layout.addWidget(self._axis_combo)
 
         top_row.addWidget(scale_group)
+
+        # --- Reconstruction assumptions ---
+        assumptions_group = QGroupBox("Assumptions")
+        assumptions_layout = QHBoxLayout(assumptions_group)
+        assumptions_layout.setSpacing(8)
+
+        self._assumptions_enabled_cb = QCheckBox("Auto")
+        self._assumptions_enabled_cb.setChecked(True)
+        self._assumptions_enabled_cb.setToolTip("Automatically apply confidence-gated geometry assumptions")
+        assumptions_layout.addWidget(self._assumptions_enabled_cb)
+
+        self._assume_flat_bottom_cb = QCheckBox("Flat bottom")
+        self._assume_flat_bottom_cb.setChecked(True)
+        self._assume_flat_bottom_cb.setToolTip("Assume unseen object underside is flat when confidence is high")
+        assumptions_layout.addWidget(self._assume_flat_bottom_cb)
+
+        self._assume_symmetry_cb = QCheckBox("Symmetry")
+        self._assume_symmetry_cb.setChecked(False)
+        self._assume_symmetry_cb.setToolTip("Enable symmetry analysis for assumption-guided corrections")
+        assumptions_layout.addWidget(self._assume_symmetry_cb)
+
+        assumptions_layout.addWidget(QLabel("Preset:"))
+        self._assumption_preset_combo = QComboBox()
+        self._assumption_preset_combo.addItems(["Conservative", "Standard", "Aggressive"])
+        self._assumption_preset_combo.setCurrentIndex(1)
+        self._assumption_preset_combo.setFixedWidth(110)
+        self._assumption_preset_combo.setToolTip(
+            "Conservative applies fewer corrections, Aggressive applies more"
+        )
+        assumptions_layout.addWidget(self._assumption_preset_combo)
+
+        assumptions_layout.addWidget(QLabel("Confidence:"))
+        self._assumption_confidence_spin = QDoubleSpinBox()
+        self._assumption_confidence_spin.setRange(0.0, 1.0)
+        self._assumption_confidence_spin.setSingleStep(0.05)
+        self._assumption_confidence_spin.setValue(0.75)
+        self._assumption_confidence_spin.setDecimals(2)
+        self._assumption_confidence_spin.setFixedWidth(70)
+        self._assumption_confidence_spin.setToolTip("Minimum confidence required before assumptions are applied")
+        assumptions_layout.addWidget(self._assumption_confidence_spin)
+
+        top_row.addWidget(assumptions_group)
 
         # --- Action buttons ---
         btn_layout = QHBoxLayout()
@@ -329,6 +454,62 @@ class ControlPanel(QWidget):
             "Foreground contrast/sharpness enhancement (0.0 = none, 1.0 = maximum)"
         )
         adv_layout.addWidget(self._contrast_spin)
+
+        adv_layout.addWidget(QLabel("Crop mode:"))
+        self._crop_mode_combo = QComboBox()
+        self._crop_mode_combo.addItems(["Square", "Original aspect"])
+        self._crop_mode_combo.setFixedWidth(130)
+        self._crop_mode_combo.setToolTip(
+            "Square keeps consistent framing. Original aspect preserves image proportions."
+        )
+        adv_layout.addWidget(self._crop_mode_combo)
+
+        self._consistency_cb = QCheckBox("Cross-image consistency")
+        self._consistency_cb.setChecked(True)
+        self._consistency_cb.setToolTip("Normalize image set framing/lighting for more stable reconstruction")
+        adv_layout.addWidget(self._consistency_cb)
+
+        adv_layout.addWidget(QLabel("Consistency:"))
+        self._consistency_spin = QDoubleSpinBox()
+        self._consistency_spin.setRange(0.0, 1.0)
+        self._consistency_spin.setSingleStep(0.1)
+        self._consistency_spin.setValue(0.5)
+        self._consistency_spin.setDecimals(1)
+        self._consistency_spin.setFixedWidth(64)
+        adv_layout.addWidget(self._consistency_spin)
+
+        adv_layout.addWidget(QLabel("Denoise:"))
+        self._denoise_spin = QDoubleSpinBox()
+        self._denoise_spin.setRange(0.0, 1.0)
+        self._denoise_spin.setSingleStep(0.1)
+        self._denoise_spin.setValue(0.2)
+        self._denoise_spin.setDecimals(1)
+        self._denoise_spin.setFixedWidth(64)
+        self._denoise_spin.setToolTip("Reduce grain/noise on foreground textures")
+        adv_layout.addWidget(self._denoise_spin)
+
+        adv_layout.addWidget(QLabel("Deblur:"))
+        self._deblur_spin = QDoubleSpinBox()
+        self._deblur_spin.setRange(0.0, 1.0)
+        self._deblur_spin.setSingleStep(0.1)
+        self._deblur_spin.setValue(0.2)
+        self._deblur_spin.setDecimals(1)
+        self._deblur_spin.setFixedWidth(64)
+        self._deblur_spin.setToolTip("Recover edge detail using mild sharpening")
+        adv_layout.addWidget(self._deblur_spin)
+
+        adv_layout.addWidget(QLabel("Background:"))
+        self._background_mode_combo = QComboBox()
+        self._background_mode_combo.addItems(["Transparent", "Solid"])
+        self._background_mode_combo.setFixedWidth(105)
+        adv_layout.addWidget(self._background_mode_combo)
+
+        self._background_color_input = QLineEdit("#FFFFFF")
+        self._background_color_input.setFixedWidth(78)
+        self._background_color_input.setMaxLength(7)
+        self._background_color_input.setPlaceholderText("#RRGGBB")
+        self._background_color_input.setToolTip("Solid background color in hex (used when Background=Solid)")
+        adv_layout.addWidget(self._background_color_input)
 
         adv_layout.addStretch(1)
         iso_outer.addWidget(self._advanced_panel)

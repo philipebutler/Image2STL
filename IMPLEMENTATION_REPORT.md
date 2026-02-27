@@ -19,6 +19,13 @@ A subsequent update implemented the recommendations from `RECOMMENDED_CHANGES.md
 - Keyboard shortcuts for common operations (Ctrl+N/O/S/I/G) (Item 15)
 - Progress bar widget for real-time reconstruction progress feedback (Item 17)
 
+Latest slice updates (assumption-guided reconstruction hardening):
+- Added assumption presets (`conservative`, `standard`, `aggressive`) with policy-based confidence floor, correction strengths, and rollback volume-safety limits.
+- Wired preset selection across project settings, Desktop UI controls, reconstruct engine payloads, and CLI (`--assumption-preset`).
+- Added user-facing reconstruction summaries that now include applied/skipped assumptions plus the effective preset/threshold details.
+- Hardened preprocess command import behavior to gracefully handle lightweight test stubs that only expose `preprocess_image`.
+- Normalized path assertions in core tests to avoid macOS `/var` vs `/private/var` symlink mismatches.
+
 ## Requirement Verification Matrix
 
 ### Functional Requirements
@@ -54,11 +61,19 @@ Implemented and passed focused tests for SPEC test priorities:
 - Image quality pre-flight checks (resolution and blur detection)
 - Enhanced mesh repair with watertight validation pass/fail feedback
 - Cancel operation plumbing
+- Assumption preset forwarding (UI/core/CLI) and policy mapping behavior
+- Assumption summary formatting (including preset and effective threshold)
 
 Command:
 
 ```bash
 python -m unittest discover -s tests -v
+```
+
+Additional validation command used for this slice:
+
+```bash
+python -m pytest -q
 ```
 
 ## Security Notes

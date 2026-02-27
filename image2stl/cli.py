@@ -49,6 +49,36 @@ def main() -> int:
         default=0.5,
         help="Foreground isolation strength (0.0–1.0)",
     )
+    reconstruct_project_cmd.add_argument(
+        "--disable-assumptions",
+        action="store_true",
+        default=False,
+        help="Disable assumption-guided geometry corrections",
+    )
+    reconstruct_project_cmd.add_argument(
+        "--no-assume-flat-bottom",
+        action="store_true",
+        default=False,
+        help="Disable flat-bottom assumption",
+    )
+    reconstruct_project_cmd.add_argument(
+        "--assume-symmetry",
+        action="store_true",
+        default=False,
+        help="Enable symmetry assumption analysis",
+    )
+    reconstruct_project_cmd.add_argument(
+        "--assumption-confidence",
+        type=float,
+        default=0.75,
+        help="Confidence threshold for applying assumptions (0.0–1.0)",
+    )
+    reconstruct_project_cmd.add_argument(
+        "--assumption-preset",
+        choices=("conservative", "standard", "aggressive"),
+        default="standard",
+        help="Assumption policy preset",
+    )
 
     preprocess_images_cmd = sub.add_parser("preprocess-images")
     preprocess_images_cmd.add_argument("--project-dir", type=Path, required=True)
@@ -125,6 +155,11 @@ def main() -> int:
             "images": image_list,
             "outputPath": str(output_path),
             "projectId": project.projectId,
+            "assumptionsEnabled": not args.disable_assumptions,
+            "assumeFlatBottom": not args.no_assume_flat_bottom,
+            "assumeSymmetry": bool(args.assume_symmetry),
+            "assumptionConfidence": float(args.assumption_confidence),
+            "assumptionPreset": str(args.assumption_preset),
         }
         if args.api_key:
             command["apiKey"] = args.api_key

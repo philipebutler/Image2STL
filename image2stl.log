@@ -151,3 +151,58 @@ RuntimeError: qArgDataFromPyType: Unable to find a QMetaType for "list".
 2026-02-26 21:59:29,328 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
 2026-02-26 21:59:29,480 - __main__ - INFO - Application started successfully
 2026-02-26 21:59:37,897 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json
+2026-02-26 22:25:09,179 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
+2026-02-26 22:25:09,370 - __main__ - INFO - Application started successfully
+2026-02-26 22:25:44,575 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/config.yaml "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 22:25:44,611 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/stabilityai/TripoSR/5b521936b01fbe1890f6f9baed0254ab6351c04a/config.yaml "HTTP/1.1 200 OK"
+2026-02-26 22:25:44,809 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/model.ckpt "HTTP/1.1 302 Found"
+2026-02-26 22:25:46,347 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/facebook/dino-vitb16/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 22:25:46,379 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/dino-vitb16/f205d5d8e640a89a2b8ef0369670dfc37cc07fc2/config.json "HTTP/1.1 200 OK"
+2026-02-26 22:26:23,866 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/config.yaml "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 22:26:24,130 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/stabilityai/TripoSR/5b521936b01fbe1890f6f9baed0254ab6351c04a/config.yaml "HTTP/1.1 200 OK"
+2026-02-26 22:26:24,243 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/model.ckpt "HTTP/1.1 302 Found"
+2026-02-26 22:26:24,359 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/facebook/dino-vitb16/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 22:26:24,393 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/dino-vitb16/f205d5d8e640a89a2b8ef0369670dfc37cc07fc2/config.json "HTTP/1.1 200 OK"
+2026-02-26 22:29:13,295 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json
+2026-02-26 23:34:18,810 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
+2026-02-26 23:34:19,013 - __main__ - INFO - Application started successfully
+2026-02-26 23:34:50,565 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/config.yaml "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 23:34:50,604 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/stabilityai/TripoSR/5b521936b01fbe1890f6f9baed0254ab6351c04a/config.yaml "HTTP/1.1 200 OK"
+2026-02-26 23:34:50,694 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/model.ckpt "HTTP/1.1 302 Found"
+2026-02-26 23:34:52,181 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/facebook/dino-vitb16/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 23:34:52,217 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/dino-vitb16/f205d5d8e640a89a2b8ef0369670dfc37cc07fc2/config.json "HTTP/1.1 200 OK"
+2026-02-26 23:38:10,781 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/config.yaml "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 23:38:10,813 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/stabilityai/TripoSR/5b521936b01fbe1890f6f9baed0254ab6351c04a/config.yaml "HTTP/1.1 200 OK"
+2026-02-26 23:38:10,888 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/model.ckpt "HTTP/1.1 302 Found"
+2026-02-26 23:38:10,978 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/facebook/dino-vitb16/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 23:38:11,013 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/dino-vitb16/f205d5d8e640a89a2b8ef0369670dfc37cc07fc2/config.json "HTTP/1.1 200 OK"
+2026-02-26 23:38:55,567 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/config.yaml "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 23:38:55,602 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/stabilityai/TripoSR/5b521936b01fbe1890f6f9baed0254ab6351c04a/config.yaml "HTTP/1.1 200 OK"
+2026-02-26 23:38:55,680 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/model.ckpt "HTTP/1.1 302 Found"
+2026-02-26 23:38:55,770 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/facebook/dino-vitb16/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 23:38:55,816 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/dino-vitb16/f205d5d8e640a89a2b8ef0369670dfc37cc07fc2/config.json "HTTP/1.1 200 OK"
+2026-02-26 23:39:37,403 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/config.yaml "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 23:39:37,403 - huggingface_hub.utils._http - WARNING - Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+2026-02-26 23:39:37,431 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/stabilityai/TripoSR/5b521936b01fbe1890f6f9baed0254ab6351c04a/config.yaml "HTTP/1.1 200 OK"
+2026-02-26 23:39:37,513 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/model.ckpt "HTTP/1.1 302 Found"
+2026-02-26 23:39:37,589 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/facebook/dino-vitb16/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 23:39:37,620 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/dino-vitb16/f205d5d8e640a89a2b8ef0369670dfc37cc07fc2/config.json "HTTP/1.1 200 OK"
+2026-02-26 23:40:16,950 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/config.yaml "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 23:40:16,984 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/stabilityai/TripoSR/5b521936b01fbe1890f6f9baed0254ab6351c04a/config.yaml "HTTP/1.1 200 OK"
+2026-02-26 23:40:17,064 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/model.ckpt "HTTP/1.1 302 Found"
+2026-02-26 23:40:17,159 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/facebook/dino-vitb16/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 23:40:17,198 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/dino-vitb16/f205d5d8e640a89a2b8ef0369670dfc37cc07fc2/config.json "HTTP/1.1 200 OK"
+2026-02-26 23:40:52,700 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/config.yaml "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 23:40:52,734 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/stabilityai/TripoSR/5b521936b01fbe1890f6f9baed0254ab6351c04a/config.yaml "HTTP/1.1 200 OK"
+2026-02-26 23:40:52,813 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/model.ckpt "HTTP/1.1 302 Found"
+2026-02-26 23:40:52,895 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/facebook/dino-vitb16/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 23:40:52,923 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/dino-vitb16/f205d5d8e640a89a2b8ef0369670dfc37cc07fc2/config.json "HTTP/1.1 200 OK"
+2026-02-26 23:46:09,882 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json
+2026-02-26 23:46:17,957 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
+2026-02-26 23:46:18,145 - __main__ - INFO - Application started successfully
+2026-02-26 23:46:29,744 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/config.yaml "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 23:46:29,787 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/stabilityai/TripoSR/5b521936b01fbe1890f6f9baed0254ab6351c04a/config.yaml "HTTP/1.1 200 OK"
+2026-02-26 23:46:29,867 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/model.ckpt "HTTP/1.1 302 Found"
+2026-02-26 23:46:31,319 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/facebook/dino-vitb16/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 23:46:31,354 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/dino-vitb16/f205d5d8e640a89a2b8ef0369670dfc37cc07fc2/config.json "HTTP/1.1 200 OK"
+2026-02-26 23:47:15,762 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json

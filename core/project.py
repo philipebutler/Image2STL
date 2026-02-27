@@ -40,6 +40,18 @@ class ProjectSettings:
     crop_padding: int = 10
     edge_feather_radius: int = 2
     contrast_strength: float = 0.0
+    crop_mode: str = "square"
+    consistency_enabled: bool = True
+    consistency_strength: float = 0.5
+    denoise_strength: float = 0.2
+    deblur_strength: float = 0.2
+    background_mode: str = "transparent"
+    background_color: str = "#FFFFFF"
+    assumptions_enabled: bool = True
+    assume_flat_bottom: bool = True
+    assume_symmetry: bool = False
+    assumption_confidence: float = 0.75
+    assumption_preset: str = "standard"
 
 
 @dataclass

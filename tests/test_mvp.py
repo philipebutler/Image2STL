@@ -1,4 +1,5 @@
 import json
+import shutil
 import sys
 import tempfile
 import types
@@ -17,6 +18,12 @@ from image2stl.project import create_project, load_project
 def _write_test_mesh(target: Path, label: str) -> dict:
     target.write_text(f"o {label}\nv 0 0 0\n", encoding="utf-8")
     return {"vertices": 1, "faces": 0}
+
+
+def _heic_fixture_paths() -> list[Path]:
+    fixture_root = Path(__file__).resolve().parent / "fixtures" / "heic"
+    candidates = sorted(fixture_root.glob("*.heic")) + sorted(fixture_root.glob("*.heif"))
+    return [path for path in candidates if path.is_file()]
 
 
 class MVPTests(unittest.TestCase):
@@ -79,6 +86,53 @@ class MVPTests(unittest.TestCase):
                 )
             self.assertEqual(messages[-1]["type"], "success")
 
+    def test_heic_fixture_quality_check(self):
+        """Real HEIC/HEIF fixtures should be decodable by quality-check path when available."""
+        fixtures = _heic_fixture_paths()
+        if not fixtures:
+            self.skipTest("No HEIC/HEIF fixtures found under tests/fixtures/heic")
+        try:
+            import pillow_heif  # noqa: F401
+        except ImportError:
+            self.skipTest("pillow-heif not installed")
+
+        warnings = check_image_quality([str(fixtures[0])])
+        unreadable = [item for item in warnings if item.get("issue") == "unreadable"]
+        self.assertEqual(unreadable, [])
+
+    def test_cli_reconstruct_project_with_heic_fixtures_local_stubbed(self):
+        """HEIC fixtures should flow through CLI project reconstruction path."""
+        fixtures = _heic_fixture_paths()
+        if not fixtures:
+            self.skipTest("No HEIC/HEIF fixtures found under tests/fixtures/heic")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            _, project_dir = create_project(base, "HeicFixtureProject")
+            selected = fixtures[:3] if len(fixtures) >= 3 else [fixtures[0], fixtures[0], fixtures[0]]
+
+            staged = []
+            for index, source in enumerate(selected):
+                target = base / f"fixture_{index}{source.suffix.lower()}"
+                shutil.copy2(source, target)
+                staged.append(target)
+
+            self._run_cli(["add-images", "--project-dir", str(project_dir), *map(str, staged)])
+            with patch("image2stl.engine._run_triposr_local") as run_local:
+                run_local.side_effect = lambda _images, target: _write_test_mesh(target, "heic_fixture")
+                code, output = self._run_cli(
+                    [
+                        "reconstruct-project",
+                        "--project-dir",
+                        str(project_dir),
+                        "--mode",
+                        "local",
+                    ]
+                )
+
+            self.assertEqual(code, 0)
+            self.assertEqual(output[-1].get("type"), "success")
+
     def test_heif_support_registered_by_engine(self):
         """Calling _ensure_heif_support should register HEIC/HEIF with Pillow when pillow-heif is available."""
         try:
@@ -135,6 +189,34 @@ class MVPTests(unittest.TestCase):
             )
             self.assertEqual(messages[-1]["type"], "success")
             self.assertTrue(output_path.exists())
+
+    def test_reconstruct_includes_assumption_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "raw.obj"
+            with patch("image2stl.engine._run_triposr_local") as run_local:
+                run_local.side_effect = lambda _images, target: _write_test_mesh(target, "local")
+                with patch("image2stl.engine._apply_reconstruction_assumptions") as apply_assumptions:
+                    apply_assumptions.return_value = {
+                        "enabled": True,
+                        "applied": ["flat_bottom"],
+                        "skipped": [],
+                        "appliedCount": 1,
+                    }
+                    messages = process_command(
+                        {
+                            "command": "reconstruct",
+                            "mode": "local",
+                            "images": ["a.jpg", "b.png", "c.heic"],
+                            "outputPath": str(output_path),
+                            "assumptionsEnabled": True,
+                            "assumeFlatBottom": True,
+                            "assumeSymmetry": False,
+                            "assumptionConfidence": 0.8,
+                        }
+                    )
+        self.assertEqual(messages[-1]["type"], "success")
+        self.assertIn("assumptions", messages[-1]["stats"])
+        self.assertEqual(messages[-1]["stats"]["assumptions"]["appliedCount"], 1)
 
     def test_check_environment_reports_local_dependencies(self):
         result = process_command({"command": "check_environment", "mode": "local"})
@@ -320,6 +402,63 @@ endsolid demo
             self.assertEqual(project.modelPath, "models/raw_reconstruction.obj")
             self.assertEqual(output[-1]["type"], "success")
             self.assertTrue((project_dir / project.modelPath).exists())
+
+    def test_cli_reconstruct_passes_assumption_flags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            _, project_dir = create_project(base, "AssumptionFlagsProject")
+            images = []
+            for index in range(3):
+                image = base / f"IMG_{index}.jpg"
+                image.write_text("mock_image_data", encoding="utf-8")
+                images.append(image)
+            self._run_cli(["add-images", "--project-dir", str(project_dir), *map(str, images)])
+
+            seen_reconstruct_command = {}
+
+            def _fake_process_command(command):
+                if command.get("command") == "reconstruct":
+                    seen_reconstruct_command.update(command)
+                return [{"type": "success", "command": command.get("command", "unknown")}]
+
+            with patch("image2stl.cli.process_command", side_effect=_fake_process_command):
+                code, _ = self._run_cli(
+                    [
+                        "reconstruct-project",
+                        "--project-dir",
+                        str(project_dir),
+                        "--mode",
+                        "local",
+                        "--assume-symmetry",
+                        "--no-assume-flat-bottom",
+                        "--assumption-confidence",
+                        "0.9",
+                        "--assumption-preset",
+                        "aggressive",
+                    ]
+                )
+
+            self.assertEqual(code, 0)
+            self.assertEqual(seen_reconstruct_command.get("assumptionsEnabled"), True)
+            self.assertEqual(seen_reconstruct_command.get("assumeFlatBottom"), False)
+            self.assertEqual(seen_reconstruct_command.get("assumeSymmetry"), True)
+            self.assertAlmostEqual(float(seen_reconstruct_command.get("assumptionConfidence", 0.0)), 0.9)
+            self.assertEqual(seen_reconstruct_command.get("assumptionPreset"), "aggressive")
+
+    def test_assumption_policy_resolves_presets(self):
+        """Assumption policy should map preset names to distinct thresholds/strengths."""
+        from image2stl.assumptions import _resolve_assumption_policy
+
+        conservative = _resolve_assumption_policy("conservative")
+        standard = _resolve_assumption_policy("standard")
+        aggressive = _resolve_assumption_policy("aggressive")
+
+        self.assertEqual(conservative["preset"], "conservative")
+        self.assertEqual(standard["preset"], "standard")
+        self.assertEqual(aggressive["preset"], "aggressive")
+
+        self.assertGreater(conservative["min_confidence"], aggressive["min_confidence"])
+        self.assertGreater(aggressive["symmetry_strength"], conservative["symmetry_strength"])
 
     def test_webp_extension_accepted_in_validation(self):
         """WebP extension (.webp) should pass image validation."""
@@ -591,6 +730,115 @@ endsolid demo
         self.assertNotEqual(hash_a, hash_b)
         self.assertNotEqual(hash_a, hash_c)
         self.assertNotEqual(hash_b, hash_c)
+
+    def test_settings_hash_changes_for_new_control_groups(self):
+        """Hash should change when new preprocessing control groups change."""
+        from image2stl.preprocess import _compute_settings_hash
+
+        base = _compute_settings_hash(
+            0.5,
+            True,
+            500,
+            10,
+            edge_feather_radius=2,
+            contrast_strength=0.2,
+            crop_mode="square",
+            consistency_strength=0.5,
+            denoise_strength=0.2,
+            deblur_strength=0.2,
+            background_mode="transparent",
+            background_color="#FFFFFF",
+        )
+        variant = _compute_settings_hash(
+            0.5,
+            True,
+            500,
+            10,
+            edge_feather_radius=2,
+            contrast_strength=0.2,
+            crop_mode="original",
+            consistency_strength=0.8,
+            denoise_strength=0.6,
+            deblur_strength=0.4,
+            background_mode="solid",
+            background_color="#000000",
+        )
+        self.assertNotEqual(base, variant)
+
+    def test_postprocess_mask_original_crop_preserves_aspect(self):
+        """Original crop mode should preserve non-square aspect ratio."""
+        try:
+            from PIL import Image
+            import numpy as np
+        except ImportError:
+            self.skipTest("Pillow or numpy not installed")
+        from image2stl.preprocess import _postprocess_mask
+
+        arr = np.zeros((120, 240, 4), dtype=np.uint8)
+        arr[40:80, 60:200] = [200, 160, 120, 255]
+        rgba = Image.fromarray(arr, mode="RGBA")
+
+        result = _postprocess_mask(
+            rgba,
+            hole_fill=False,
+            island_threshold=0,
+            crop_padding=0,
+            min_output_size=0,
+            crop_mode="original",
+        )
+        self.assertNotEqual(result.width, result.height)
+
+    def test_postprocess_mask_solid_background_flattens_alpha(self):
+        """Solid background mode should output fully opaque alpha channel."""
+        try:
+            from PIL import Image
+            import numpy as np
+        except ImportError:
+            self.skipTest("Pillow or numpy not installed")
+        from image2stl.preprocess import _postprocess_mask
+
+        arr = np.zeros((64, 64, 4), dtype=np.uint8)
+        arr[20:44, 20:44] = [255, 0, 0, 200]
+        rgba = Image.fromarray(arr, mode="RGBA")
+
+        result = _postprocess_mask(
+            rgba,
+            hole_fill=False,
+            island_threshold=0,
+            crop_padding=0,
+            min_output_size=0,
+            background_mode="solid",
+            background_color="#00FF00",
+        )
+        alpha = np.array(result)[:, :, 3]
+        self.assertTrue((alpha == 255).all())
+
+    def test_apply_symmetry_correction_moves_vertices(self):
+        """Symmetry correction should adjust axis coordinates for asymmetric input."""
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest("numpy not installed")
+        from image2stl.assumptions import _apply_symmetry_correction
+
+        # Deliberately asymmetric along X axis
+        verts = np.array(
+            [
+                [-2.0, -1.0, 0.0],
+                [-1.5, 0.5, 0.2],
+                [-1.0, 1.0, -0.1],
+                [0.2, -1.0, 0.0],
+                [0.4, 0.5, 0.2],
+                [0.6, 1.0, -0.1],
+                [0.7, -0.2, 0.3],
+                [0.9, 0.2, -0.3],
+            ],
+            dtype=float,
+        )
+
+        corrected, moved = _apply_symmetry_correction(verts, axis=0, strength=0.35)
+        self.assertGreater(moved, 0)
+        self.assertEqual(corrected.shape, verts.shape)
 
     def test_preprocess_images_command_success(self):
         """preprocess_images engine command should return processed file paths on success."""

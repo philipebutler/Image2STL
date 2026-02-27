@@ -61,6 +61,15 @@ class ProgressWidget(QWidget):
         self._error_suggestion.setVisible(bool(suggestion))
         self._error_frame.setVisible(True)
 
+    def show_info(self, message: str):
+        """Display an informational message below the progress bar."""
+        self._info_label.setText(message)
+        self._info_label.setVisible(bool(message))
+
+    def clear_info(self):
+        """Hide the informational message line."""
+        self._info_label.setVisible(False)
+
     def clear_error(self):
         """Hide the error display."""
         self._error_frame.setVisible(False)
@@ -70,6 +79,7 @@ class ProgressWidget(QWidget):
         self._bar.setValue(0)
         self._status_label.setText("")
         self._warning_label.setVisible(False)
+        self._info_label.setVisible(False)
         self._error_frame.setVisible(False)
 
     # ------------------------------------------------------------------
@@ -100,6 +110,13 @@ class ProgressWidget(QWidget):
         self._warning_label.setStyleSheet("color: #ffc000; background: rgba(255,192,0,0.12); padding: 4px 8px; border-radius: 4px;")
         self._warning_label.setVisible(False)
         layout.addWidget(self._warning_label)
+
+        # Informational summary display
+        self._info_label = QLabel()
+        self._info_label.setStyleSheet("color: #9fc5ff; background: rgba(100,149,237,0.12); padding: 4px 8px; border-radius: 4px;")
+        self._info_label.setWordWrap(True)
+        self._info_label.setVisible(False)
+        layout.addWidget(self._info_label)
 
         # Error display
         self._error_frame = QWidget()
