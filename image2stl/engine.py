@@ -631,6 +631,8 @@ def process_command(command: dict) -> list[dict]:
         hole_fill = bool(command.get("holeFill", True))
         island_threshold = int(command.get("islandRemovalThreshold", 500))
         crop_padding = int(command.get("cropPadding", 10))
+        edge_feather_radius = int(command.get("edgeFeatherRadius", 2))
+        contrast_strength = float(command.get("contrastStrength", 0.0))
         try:
             from .preprocess import preprocess_image
         except ImportError:
@@ -648,6 +650,8 @@ def process_command(command: dict) -> list[dict]:
                     hole_fill=hole_fill,
                     island_removal_threshold=island_threshold,
                     crop_padding=crop_padding,
+                    edge_feather_radius=edge_feather_radius,
+                    contrast_strength=contrast_strength,
                 )
                 processed.append(str(out))
             except ImportError:

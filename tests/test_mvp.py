@@ -489,6 +489,109 @@ endsolid demo
         self.assertEqual(result.width, 600)
         self.assertEqual(result.height, 600)
 
+    def test_refine_mask_edges_smooths_noisy_boundary(self):
+        """_refine_mask_edges should clean up jagged edges via morphological ops."""
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest("numpy not installed")
+        from image2stl.preprocess import _refine_mask_edges
+
+        # Create a mask with small protrusions (noise on edges)
+        mask = np.zeros((100, 100), dtype=np.uint8)
+        mask[30:70, 30:70] = 255
+        # Add single-pixel noise protrusions
+        mask[29, 50] = 255
+        mask[70, 50] = 255
+        mask[50, 29] = 255
+        mask[50, 70] = 255
+
+        refined = _refine_mask_edges(mask)
+        self.assertTrue(refined.sum() > 0)
+        # Core region should still be foreground
+        self.assertTrue(np.all(refined[35:65, 35:65] == 255))
+
+    def test_feather_edges_creates_smooth_alpha(self):
+        """_feather_edges should produce intermediate alpha values at boundaries."""
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest("numpy not installed")
+        from image2stl.preprocess import _feather_edges
+
+        alpha = np.zeros((100, 100), dtype=np.uint8)
+        alpha[30:70, 30:70] = 255
+
+        feathered = _feather_edges(alpha, radius=3)
+        has_intermediate = np.any((feathered > 0) & (feathered < 255))
+        self.assertTrue(has_intermediate, "Feathered alpha should have smooth edge transitions")
+
+    def test_feather_edges_zero_radius_is_noop(self):
+        """_feather_edges with radius=0 should not be called, but postprocess handles it."""
+        try:
+            import numpy as np
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow or numpy not installed")
+        from image2stl.preprocess import _postprocess_mask
+
+        arr = np.zeros((100, 100, 4), dtype=np.uint8)
+        arr[30:70, 30:70] = [128, 64, 32, 255]
+        rgba = Image.fromarray(arr, mode="RGBA")
+
+        # edge_feather_radius=0 should skip feathering
+        result = _postprocess_mask(rgba, hole_fill=False, island_threshold=0,
+                                   crop_padding=0, min_output_size=0,
+                                   edge_feather_radius=0, contrast_strength=0.0)
+        self.assertEqual(result.mode, "RGBA")
+
+    def test_enhance_foreground_sharpens_rgb(self):
+        """_enhance_foreground should modify foreground RGB without touching background."""
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest("numpy not installed")
+        from image2stl.preprocess import _enhance_foreground
+
+        arr = np.zeros((100, 100, 4), dtype=np.uint8)
+        arr[30:70, 30:70, :3] = [128, 64, 32]
+        arr[30:70, 30:70, 3] = 255
+
+        enhanced = _enhance_foreground(arr.copy(), strength=0.5)
+        # Background (alpha=0) should be unchanged
+        bg = arr[:, :, 3] == 0
+        self.assertTrue(np.array_equal(enhanced[bg, :3], arr[bg, :3]))
+
+    def test_enhance_foreground_zero_strength_is_noop(self):
+        """_enhance_foreground with strength=0 should not modify the image."""
+        try:
+            import numpy as np
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow or numpy not installed")
+        from image2stl.preprocess import _postprocess_mask
+
+        arr = np.zeros((100, 100, 4), dtype=np.uint8)
+        arr[30:70, 30:70] = [128, 64, 32, 255]
+        rgba = Image.fromarray(arr, mode="RGBA")
+
+        # contrast_strength=0.0 should skip enhancement
+        result = _postprocess_mask(rgba, hole_fill=False, island_threshold=0,
+                                   crop_padding=0, min_output_size=0,
+                                   edge_feather_radius=0, contrast_strength=0.0)
+        self.assertEqual(result.mode, "RGBA")
+
+    def test_settings_hash_includes_new_parameters(self):
+        """_compute_settings_hash should produce different hashes for different new params."""
+        from image2stl.preprocess import _compute_settings_hash
+
+        hash_a = _compute_settings_hash(0.5, True, 500, 10, edge_feather_radius=0, contrast_strength=0.0)
+        hash_b = _compute_settings_hash(0.5, True, 500, 10, edge_feather_radius=3, contrast_strength=0.0)
+        hash_c = _compute_settings_hash(0.5, True, 500, 10, edge_feather_radius=0, contrast_strength=0.5)
+        self.assertNotEqual(hash_a, hash_b)
+        self.assertNotEqual(hash_a, hash_c)
+        self.assertNotEqual(hash_b, hash_c)
+
     def test_preprocess_images_command_success(self):
         """preprocess_images engine command should return processed file paths on success."""
         with tempfile.TemporaryDirectory() as tmp:
