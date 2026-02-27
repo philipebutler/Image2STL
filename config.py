@@ -23,7 +23,7 @@ class Config:
             "scale_mm": 150.0,
             "reconstruction_mode": "local",
             "min_images": 3,
-            "max_images": 5,
+            "max_images": 50,
         },
         "triposr": {
             "model_path": "models/triposr",

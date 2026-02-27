@@ -104,7 +104,7 @@ class MainWindow(QMainWindow):
         # Status bar
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Drag and drop 3-5 images or use File → Add Images.")
+        self.status_bar.showMessage("Drag and drop 3-50 images or use File → Add Images.")
 
     def _create_left_panel(self) -> QWidget:
         panel = QWidget()
@@ -112,7 +112,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        layout.addWidget(QLabel("Images (3–5)"))
+        layout.addWidget(QLabel("Images (3–50)"))
 
         self.image_gallery = ImageGallery()
         layout.addWidget(self.image_gallery, 1)
@@ -329,7 +329,7 @@ class MainWindow(QMainWindow):
         if count < 3:
             msg = f"Loaded {count} image(s). Add at least {3 - count} more."
         elif count > 5:
-            msg = f"Loaded {count} image(s). Use 3–5 images for best results."
+            msg = f"Loaded {count} image(s). Use 3–50 images for best results."
         else:
             msg = f"Loaded {count} image(s). Ready for reconstruction."
         self.status_bar.showMessage(msg)
@@ -495,8 +495,8 @@ class MainWindow(QMainWindow):
         if len(images) < 3:
             QMessageBox.warning(self, "Not enough images", "Add at least 3 images before generating.")
             return
-        if len(images) > 5:
-            QMessageBox.warning(self, "Too many images", "Use 3–5 images for best results.")
+        if len(images) > 50:
+            QMessageBox.warning(self, "Too many images", "Use 3–50 images for best results.")
             return
 
         # Auto-isolate: run preprocess first, then chain into reconstruction
@@ -595,7 +595,7 @@ class MainWindow(QMainWindow):
         self.control_panel.set_processing(False)
         suggestions = {
             "INSUFFICIENT_IMAGES": "Add at least 3 images.",
-            "TOO_MANY_IMAGES": "Use 3–5 images.",
+            "TOO_MANY_IMAGES": "Use 3–50 images.",
             "API_ERROR": "Check your API key in Settings or try Local mode.",
             "RECONSTRUCTION_FAILED": "Try different images or switch to Cloud mode.",
             "OPERATION_CANCELLED": "Operation was cancelled.",

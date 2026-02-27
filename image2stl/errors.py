@@ -6,8 +6,8 @@ ERROR_DEFINITIONS = {
         "suggestion": "Add at least 3 images",
     },
     "TOO_MANY_IMAGES": {
-        "message": "Too many images for MVP",
-        "suggestion": "Use 3-5 images",
+        "message": "Too many images",
+        "suggestion": "Use 3-50 images",
     },
     "INSUFFICIENT_FEATURES": {
         "message": "Images too similar or low quality",

@@ -211,7 +211,7 @@ def _validate_reconstruction(command: dict) -> dict | None:
     images = command.get("images", [])
     if len(images) < 3:
         return make_error("reconstruct", "INSUFFICIENT_IMAGES")
-    if len(images) > 5:
+    if len(images) > 50:
         return make_error("reconstruct", "TOO_MANY_IMAGES")
     for image in images:
         if Path(image).suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
