@@ -226,7 +226,7 @@ class ReconstructionEngine:
         self._thread = threading.Thread(target=_run, daemon=True)
         self._thread.start()
 
-    def join_thread(self, timeout: float = 2.0):
+    def wait_for_completion(self, timeout: float = 2.0):
         """Wait for the current background thread to finish.
 
         Args:

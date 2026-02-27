@@ -695,7 +695,7 @@ class MainWindow(QMainWindow):
             # Wait briefly for the daemon thread to flush any partial output.
             # The thread is a daemon so the interpreter will not hang if the
             # timeout expires.
-            self.reconstruction_engine.join_thread(timeout=2.0)
+            self.reconstruction_engine.wait_for_completion(timeout=2.0)
         self._sync_preprocess_settings_to_project()
         self.project_manager.close_current_project()
         self.config.set("ui.window_width", self.width())

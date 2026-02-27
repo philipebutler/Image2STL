@@ -223,6 +223,16 @@ The feature requires the optional `rembg` library:
 pip install rembg
 ```
 
+For the advanced **Fill holes** and **Island threshold** controls (under the
+Advanced ▸ panel) to work, `scipy` is also required:
+
+```bash
+pip install scipy
+```
+
+If `scipy` is not installed those two features degrade gracefully — the controls
+remain visible but have no effect.
+
 #### UI controls (Foreground Isolation panel)
 
 | Control | Description |
