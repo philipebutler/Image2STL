@@ -268,8 +268,8 @@ class MainWindow(QMainWindow):
                 hole_fill=s.hole_fill_enabled,
                 island_threshold=s.island_removal_threshold,
                 crop_padding=s.crop_padding,
-                edge_feather_radius=getattr(s, 'edge_feather_radius', 2),
-                contrast_strength=getattr(s, 'contrast_strength', 0.0),
+                edge_feather_radius=s.edge_feather_radius,
+                contrast_strength=s.contrast_strength,
             )
 
             self.setWindowTitle(f"Image2STL – {project.name}")

@@ -224,6 +224,7 @@ def _feather_edges(alpha_channel, radius: int):
         dilated = ndimage.binary_dilation(binary, iterations=max(1, radius))
         edge_band = dilated & ~eroded
 
+        # Feather sigma is ~80% of the pixel radius for a natural falloff
         sigma = max(0.5, radius * 0.8)
         blurred = ndimage.gaussian_filter(alpha_channel.astype(float), sigma=sigma)
         result = alpha_channel.copy().astype(float)
@@ -263,10 +264,13 @@ def _enhance_foreground(arr, strength: float):
     rgb = arr[:, :, :3].copy()
     pil_rgb = Image.fromarray(rgb, mode="RGB")
 
-    # Unsharp mask with strength-scaled parameters
-    usm_radius = 1.5 + strength * 1.5  # 1.5 to 3.0
-    usm_percent = int(80 + strength * 120)  # 80% to 200%
-    usm_threshold = max(1, int(4 - strength * 3))  # 4 to 1
+    # Unsharp mask with strength-scaled parameters:
+    #   radius:    1.5 (subtle) to 3.0 (aggressive) px
+    #   percent:   80% (subtle) to 200% (aggressive) sharpening
+    #   threshold: 4 (subtle, skips low-contrast edges) to 1 (aggressive)
+    usm_radius = 1.5 + strength * 1.5
+    usm_percent = int(80 + strength * 120)
+    usm_threshold = max(1, int(4 - strength * 3))
     sharpened = pil_rgb.filter(
         ImageFilter.UnsharpMask(radius=usm_radius, percent=usm_percent, threshold=usm_threshold)
     )
