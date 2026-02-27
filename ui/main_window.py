@@ -54,6 +54,9 @@ class MainWindow(QMainWindow):
         # When True, a preprocess run triggered automatically should chain
         # directly into reconstruction once it completes.
         self._preprocess_then_reconstruct: bool = False
+        # Holds the stats dict from the most recent preprocessing run so it
+        # can be read by the main-thread slot after QMetaObject dispatch.
+        self._pending_preprocess_stats: dict = {}
 
         self._init_ui()
         self._connect_signals()
@@ -260,14 +263,14 @@ class MainWindow(QMainWindow):
 
             # Restore isolation settings from project
             s = project.settings
-            self.control_panel._auto_isolate_cb.setChecked(s.auto_isolate_enabled)
-            self.control_panel._strength_spin.setValue(s.preprocess_strength)
-            self.control_panel._source_combo.setCurrentIndex(
-                1 if s.preprocess_source_mode == "processed" else 0
+            self.control_panel.load_isolation_settings(
+                auto_isolate=s.auto_isolate_enabled,
+                strength=s.preprocess_strength,
+                source=s.preprocess_source_mode,
+                hole_fill=s.hole_fill_enabled,
+                island_threshold=s.island_removal_threshold,
+                crop_padding=s.crop_padding,
             )
-            self.control_panel._hole_fill_cb.setChecked(s.hole_fill_enabled)
-            self.control_panel._island_spin.setValue(s.island_removal_threshold)
-            self.control_panel._crop_padding_spin.setValue(s.crop_padding)
 
             self.setWindowTitle(f"Image2STL – {project.name}")
             self.status_bar.showMessage(f"Loaded project '{project.name}'.")
@@ -389,6 +392,8 @@ class MainWindow(QMainWindow):
         )
 
     def _on_preprocess_success(self, processed_paths: list, stats: dict):
+        # Stash stats so the main-thread slot can read them without extra Q_ARG types.
+        self._pending_preprocess_stats = stats
         QMetaObject.invokeMethod(
             self,
             "_handle_preprocess_success",
@@ -398,6 +403,8 @@ class MainWindow(QMainWindow):
 
     @Slot(list)
     def _handle_preprocess_success(self, processed_paths: list):
+        stats = self._pending_preprocess_stats
+        failed = stats.get("failed", 0)
         images = self.image_gallery.image_paths
         self._processed_image_paths = processed_paths
 
@@ -419,7 +426,14 @@ class MainWindow(QMainWindow):
         self.image_gallery.mark_processed(self._processed_source_paths)
         self.control_panel.set_processed_count(len(processed_paths))
         self.control_panel.set_processing(False)
-        self.progress_widget.set_complete()
+
+        if failed > 0:
+            self.progress_widget.show_error(
+                f"{failed} image(s) could not be preprocessed.",
+                "Check the log for details. Remaining images were processed successfully.",
+            )
+        else:
+            self.progress_widget.set_complete()
 
         # Persist to project
         project = self.project_manager.current_project
@@ -681,9 +695,7 @@ class MainWindow(QMainWindow):
             # Wait briefly for the daemon thread to flush any partial output.
             # The thread is a daemon so the interpreter will not hang if the
             # timeout expires.
-            thread = self.reconstruction_engine._thread
-            if thread is not None:
-                thread.join(timeout=2.0)
+            self.reconstruction_engine.join_thread(timeout=2.0)
         self._sync_preprocess_settings_to_project()
         self.project_manager.close_current_project()
         self.config.set("ui.window_width", self.width())

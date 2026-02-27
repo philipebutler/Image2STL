@@ -104,6 +104,32 @@ class ControlPanel(QWidget):
             self._processed_status_label.setText("No processed images")
             self._processed_status_label.setStyleSheet("color: #888; font-size: 11px;")
 
+    def load_isolation_settings(
+        self,
+        auto_isolate: bool,
+        strength: float,
+        source: str,
+        hole_fill: bool,
+        island_threshold: int,
+        crop_padding: int,
+    ):
+        """Restore isolation settings from a saved project into the UI controls.
+
+        Args:
+            auto_isolate: Whether Auto Isolate should be checked.
+            strength: Preprocessing strength value (0.0–1.0).
+            source: Source selector value – "original" or "processed".
+            hole_fill: Whether Fill holes should be checked.
+            island_threshold: Island removal threshold value.
+            crop_padding: Crop padding value in pixels.
+        """
+        self._auto_isolate_cb.setChecked(auto_isolate)
+        self._strength_spin.setValue(strength)
+        self._source_combo.setCurrentIndex(1 if source == "processed" else 0)
+        self._hole_fill_cb.setChecked(hole_fill)
+        self._island_spin.setValue(island_threshold)
+        self._crop_padding_spin.setValue(crop_padding)
+
     # ------------------------------------------------------------------
     # Internal UI build
     # ------------------------------------------------------------------

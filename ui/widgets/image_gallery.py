@@ -42,7 +42,11 @@ class _ImageTile(QFrame):
     def __init__(self, file_path: str, parent=None):
         super().__init__(parent)
         self.file_path = file_path
-        self.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
+        # Use a stylesheet-managed border so we can restore it precisely when
+        # the 'processed' indicator is toggled off (setFrameStyle() uses the
+        # internal QPainter which stylesheet rules override unpredictably).
+        self._default_style = "QFrame { border: 1px solid #555; border-radius: 2px; }"
+        self.setStyleSheet(self._default_style)
         self._is_processed = False
 
         layout = QVBoxLayout(self)
@@ -91,7 +95,7 @@ class _ImageTile(QFrame):
                 "QFrame { border: 2px solid #3a3; border-radius: 4px; }"
             )
         else:
-            self.setStyleSheet("")
+            self.setStyleSheet(self._default_style)
 
     def _load_thumbnail(self, file_path: str):
         pixmap = QPixmap(file_path)

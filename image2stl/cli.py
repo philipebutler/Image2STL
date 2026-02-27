@@ -90,6 +90,19 @@ def main() -> int:
 
         # Optionally run preprocessing first
         if getattr(args, "auto_isolate_foreground", False):
+            if preprocess_source == "processed":
+                import sys as _sys
+                print(
+                    json.dumps({
+                        "type": "warning",
+                        "message": (
+                            "--auto-isolate-foreground always processes the original images; "
+                            "--preprocess-source processed is overridden and the freshly "
+                            "processed images will be used for reconstruction."
+                        ),
+                    }),
+                    file=_sys.stderr,
+                )
             processed_dir = args.project_dir / "preview" / "processed"
             preprocess_cmd = {
                 "command": "preprocess_images",

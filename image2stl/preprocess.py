@@ -69,7 +69,18 @@ def preprocess_image(
         return output_path
 
     with Image.open(source_path) as img:
-        rgba = rembg_remove(img)
+        if strength > 0.0:
+            # Use alpha matting for finer edge detail; map strength to the
+            # foreground-confidence threshold (higher strength → more pixels
+            # counted as foreground → more aggressive cutout).
+            fg_threshold = max(1, int(strength * 240))
+            rgba = rembg_remove(
+                img,
+                alpha_matting=True,
+                alpha_matting_foreground_threshold=fg_threshold,
+            )
+        else:
+            rgba = rembg_remove(img)
 
     rgba = _postprocess_mask(rgba, hole_fill, island_removal_threshold, crop_padding)
     rgba.save(str(output_path), format="PNG")

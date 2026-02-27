@@ -170,6 +170,10 @@ class ReconstructionEngine:
     ):
         """Run foreground isolation preprocessing in a background thread.
 
+        Reuses the same ``_thread`` slot as ``reconstruct`` so that
+        ``is_running`` correctly reflects activity and ``cancel`` / window
+        close work during preprocessing.
+
         Args:
             images: List of absolute image paths.
             output_dir: Directory to write processed RGBA PNG files.
@@ -180,6 +184,10 @@ class ReconstructionEngine:
             on_success: Called with (processed_image_paths, stats_dict).
             on_error: Called with (error_code, message).
         """
+        if self.is_running:
+            logger.warning("An operation is already in progress")
+            return
+
         command = {
             "command": "preprocess_images",
             "images": images,
@@ -191,29 +199,41 @@ class ReconstructionEngine:
         }
 
         def _run():
-            messages = process_command(command)
-            for msg in messages:
-                if msg.get("type") == "success":
-                    if on_success:
-                        try:
-                            on_success(
-                                msg.get("processedImages", []),
-                                msg.get("stats", {}),
-                            )
-                        except Exception:
-                            logger.exception("on_success callback raised an exception")
-                elif msg.get("type") == "error":
-                    if on_error:
-                        try:
-                            on_error(
-                                msg.get("errorCode", "UNKNOWN_ERROR"),
-                                msg.get("message", ""),
-                            )
-                        except Exception:
-                            logger.exception("on_error callback raised an exception")
+            try:
+                messages = process_command(command)
+                for msg in messages:
+                    if msg.get("type") == "success":
+                        if on_success:
+                            try:
+                                on_success(
+                                    msg.get("processedImages", []),
+                                    msg.get("stats", {}),
+                                )
+                            except Exception:
+                                logger.exception("on_success callback raised an exception")
+                    elif msg.get("type") == "error":
+                        if on_error:
+                            try:
+                                on_error(
+                                    msg.get("errorCode", "UNKNOWN_ERROR"),
+                                    msg.get("message", ""),
+                                )
+                            except Exception:
+                                logger.exception("on_error callback raised an exception")
+            finally:
+                self._thread = None
 
-        thread = threading.Thread(target=_run, daemon=True)
-        thread.start()
+        self._thread = threading.Thread(target=_run, daemon=True)
+        self._thread.start()
+
+    def join_thread(self, timeout: float = 2.0):
+        """Wait for the current background thread to finish.
+
+        Args:
+            timeout: Maximum seconds to wait before returning.
+        """
+        if self._thread is not None:
+            self._thread.join(timeout=timeout)
 
     def scale(
         self,
