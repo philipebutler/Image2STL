@@ -42,7 +42,12 @@ class _ImageTile(QFrame):
     def __init__(self, file_path: str, parent=None):
         super().__init__(parent)
         self.file_path = file_path
-        self.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
+        # Use a stylesheet-managed border so we can restore it precisely when
+        # the 'processed' indicator is toggled off (setFrameStyle() uses the
+        # internal QPainter which stylesheet rules override unpredictably).
+        self._default_style = "QFrame { border: 1px solid #555; border-radius: 2px; }"
+        self.setStyleSheet(self._default_style)
+        self._is_processed = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
@@ -56,7 +61,7 @@ class _ImageTile(QFrame):
         self._load_thumbnail(file_path)
         layout.addWidget(self._thumb)
 
-        # Bottom row: filename + remove button
+        # Bottom row: filename + processed tag + remove button
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
 
@@ -67,12 +72,30 @@ class _ImageTile(QFrame):
         name_label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         row.addWidget(name_label, 1)
 
+        self._processed_badge = QLabel("✓ processed")
+        self._processed_badge.setStyleSheet(
+            "color: #3a3; font-size: 10px; font-weight: bold;"
+        )
+        self._processed_badge.setVisible(False)
+        row.addWidget(self._processed_badge)
+
         remove_btn = QPushButton("Remove")
         remove_btn.setFixedWidth(70)
         remove_btn.clicked.connect(lambda: self.remove_requested.emit(self.file_path))
         row.addWidget(remove_btn)
 
         layout.addLayout(row)
+
+    def set_processed(self, is_processed: bool):
+        """Toggle the visual 'processed' indicator on this tile."""
+        self._is_processed = is_processed
+        self._processed_badge.setVisible(is_processed)
+        if is_processed:
+            self.setStyleSheet(
+                "QFrame { border: 2px solid #3a3; border-radius: 4px; }"
+            )
+        else:
+            self.setStyleSheet(self._default_style)
 
     def _load_thumbnail(self, file_path: str):
         pixmap = QPixmap(file_path)
@@ -178,6 +201,18 @@ class ImageGallery(QWidget):
     @property
     def image_count(self) -> int:
         return len(self._image_paths)
+
+    def mark_processed(self, processed_source_paths: list):
+        """Mark tiles whose source paths have been preprocessed.
+
+        Args:
+            processed_source_paths: List of original source file paths that now
+                have corresponding processed versions available.  Pass an empty
+                list to clear all processed indicators.
+        """
+        processed_set = set(processed_source_paths)
+        for tile in self._tiles:
+            tile.set_processed(tile.file_path in processed_set)
 
     # ------------------------------------------------------------------
     # Drag-and-drop

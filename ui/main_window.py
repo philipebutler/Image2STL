@@ -46,6 +46,17 @@ class MainWindow(QMainWindow):
         self.project_manager = ProjectManager(Path(config.get("app.last_project_dir")))
         self.reconstruction_engine = ReconstructionEngine(config)
         self._reconstructed_model_path: Optional[Path] = None
+        # Tracks the source paths whose processed versions are available for
+        # the current session (populated by _on_preprocess_success).
+        self._processed_source_paths: list[str] = []
+        # Tracks the actual processed file paths returned by the engine.
+        self._processed_image_paths: list[str] = []
+        # When True, a preprocess run triggered automatically should chain
+        # directly into reconstruction once it completes.
+        self._preprocess_then_reconstruct: bool = False
+        # Holds the stats dict from the most recent preprocessing run so it
+        # can be read by the main-thread slot after QMetaObject dispatch.
+        self._pending_preprocess_stats: dict = {}
 
         self._init_ui()
         self._connect_signals()
@@ -81,7 +92,7 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(splitter, 1)
 
-        # Control panel (mode, scale, buttons)
+        # Control panel (mode, scale, isolation, buttons)
         self.control_panel = ControlPanel(self.config)
         main_layout.addWidget(self.control_panel)
 
@@ -93,7 +104,7 @@ class MainWindow(QMainWindow):
         # Status bar
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Drag and drop 3-5 images or use File → Add Images.")
+        self.status_bar.showMessage("Drag and drop 3-50 images or use File → Add Images.")
 
     def _create_left_panel(self) -> QWidget:
         panel = QWidget()
@@ -101,7 +112,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        layout.addWidget(QLabel("Images (3–5)"))
+        layout.addWidget(QLabel("Images (3–50)"))
 
         self.image_gallery = ImageGallery()
         layout.addWidget(self.image_gallery, 1)
@@ -153,6 +164,12 @@ class MainWindow(QMainWindow):
         add_images_action.triggered.connect(self._on_add_images)
         images_menu.addAction(add_images_action)
 
+        # Preprocess menu entry
+        preprocess_action = QAction("&Isolate Foreground", self)
+        preprocess_action.setShortcut("Ctrl+P")
+        preprocess_action.triggered.connect(self._on_preprocess)
+        images_menu.addAction(preprocess_action)
+
     # ------------------------------------------------------------------
     # Signal connections
     # ------------------------------------------------------------------
@@ -162,6 +179,7 @@ class MainWindow(QMainWindow):
         self.control_panel.generate_requested.connect(self._on_generate)
         self.control_panel.export_requested.connect(self._on_export)
         self.control_panel.cancel_requested.connect(self._on_cancel)
+        self.control_panel.preprocess_requested.connect(self._on_preprocess)
 
     # ------------------------------------------------------------------
     # Window state
@@ -191,8 +209,11 @@ class MainWindow(QMainWindow):
                 self.progress_widget.reset()
                 self.progress_widget.setVisible(False)
                 self._reconstructed_model_path = None
+                self._processed_source_paths = []
+                self._processed_image_paths = []
                 self.viewer_3d.reset_placeholder()
                 self.control_panel.enable_export(False)
+                self.control_panel.set_processed_count(0)
                 self.setWindowTitle(f"Image2STL – {project.name}")
                 self.status_bar.showMessage(f"New project '{project.name}' created.")
                 self.config.set("app.last_project_dir", str(dialog.project_dir))
@@ -220,6 +241,37 @@ class MainWindow(QMainWindow):
             else:
                 self.viewer_3d.reset_placeholder()
                 self.control_panel.enable_export(False)
+
+            # Restore processed images state
+            processed_abs = [
+                str((project.project_path / p).resolve())
+                for p in project.processed_images
+                if (project.project_path / p).exists()
+            ]
+            self._processed_image_paths = processed_abs
+
+            # Determine which source images actually have corresponding processed versions.
+            # We match by filename stem to be resilient to directory differences.
+            processed_stems = {Path(p).stem for p in processed_abs}
+            self._processed_source_paths = [
+                src_path
+                for src_path in image_paths
+                if Path(src_path).stem in processed_stems
+            ]
+            self.image_gallery.mark_processed(self._processed_source_paths)
+            self.control_panel.set_processed_count(len(processed_abs))
+
+            # Restore isolation settings from project
+            s = project.settings
+            self.control_panel.load_isolation_settings(
+                auto_isolate=s.auto_isolate_enabled,
+                strength=s.preprocess_strength,
+                source=s.preprocess_source_mode,
+                hole_fill=s.hole_fill_enabled,
+                island_threshold=s.island_removal_threshold,
+                crop_padding=s.crop_padding,
+            )
+
             self.setWindowTitle(f"Image2STL – {project.name}")
             self.status_bar.showMessage(f"Loaded project '{project.name}'.")
         except Exception as exc:
@@ -229,12 +281,26 @@ class MainWindow(QMainWindow):
     def _on_save_project(self):
         if self.project_manager.current_project:
             try:
+                self._sync_preprocess_settings_to_project()
                 self.project_manager.save_current_project()
                 self.status_bar.showMessage("Project saved.")
             except Exception as exc:
                 QMessageBox.critical(self, "Error", f"Could not save project:\n{exc}")
         else:
             self.status_bar.showMessage("No active project to save.")
+
+    def _sync_preprocess_settings_to_project(self):
+        """Write control panel preprocessing settings into the current project."""
+        project = self.project_manager.current_project
+        if project is None:
+            return
+        s = project.settings
+        s.auto_isolate_enabled = self.control_panel.auto_isolate_enabled
+        s.preprocess_strength = self.control_panel.preprocess_strength
+        s.preprocess_source_mode = self.control_panel.preprocess_source
+        s.hole_fill_enabled = self.control_panel.hole_fill_enabled
+        s.island_removal_threshold = self.control_panel.island_removal_threshold
+        s.crop_padding = self.control_panel.crop_padding
 
     @Slot()
     def _on_settings(self):
@@ -263,10 +329,17 @@ class MainWindow(QMainWindow):
         if count < 3:
             msg = f"Loaded {count} image(s). Add at least {3 - count} more."
         elif count > 5:
-            msg = f"Loaded {count} image(s). Use 3–5 images for best results."
+            msg = f"Loaded {count} image(s). Use 3–50 images for best results."
         else:
             msg = f"Loaded {count} image(s). Ready for reconstruction."
         self.status_bar.showMessage(msg)
+
+        # Clear processed state when image list changes
+        if self._processed_source_paths or self._processed_image_paths:
+            self._processed_source_paths = []
+            self._processed_image_paths = []
+            self.image_gallery.mark_processed([])
+            self.control_panel.set_processed_count(0)
 
         # Keep project in sync
         if self.project_manager.current_project is not None:
@@ -280,8 +353,141 @@ class MainWindow(QMainWindow):
                     project.images.append(fp)
 
     # ------------------------------------------------------------------
+    # Foreground isolation / preprocessing
+    # ------------------------------------------------------------------
+
+    @Slot()
+    def _on_preprocess(self):
+        """Manually triggered foreground isolation."""
+        images = self.image_gallery.image_paths
+        if not images:
+            QMessageBox.warning(self, "No images", "Add at least one image before running preprocessing.")
+            return
+
+        self._preprocess_then_reconstruct = False
+        self._start_preprocess(images)
+
+    def _start_preprocess(self, images: list[str]):
+        """Start preprocessing for the given image list."""
+        project = self.project_manager.current_project
+        if project:
+            output_dir = project.project_path / "preview" / "processed"
+        else:
+            output_dir = Path.home() / "image2stl_processed"
+
+        self.progress_widget.reset()
+        self.progress_widget.setVisible(True)
+        self.control_panel.set_processing(True)
+        self.status_bar.showMessage("Isolating foreground…")
+
+        self.reconstruction_engine.preprocess_images(
+            images=images,
+            output_dir=output_dir,
+            strength=self.control_panel.preprocess_strength,
+            hole_fill=self.control_panel.hole_fill_enabled,
+            island_removal_threshold=self.control_panel.island_removal_threshold,
+            crop_padding=self.control_panel.crop_padding,
+            on_success=self._on_preprocess_success,
+            on_error=self._on_preprocess_error,
+        )
+
+    def _on_preprocess_success(self, processed_paths: list, stats: dict):
+        # Stash stats so the main-thread slot can read them without extra Q_ARG types.
+        self._pending_preprocess_stats = stats
+        QMetaObject.invokeMethod(
+            self,
+            "_handle_preprocess_success",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(list, processed_paths),
+        )
+
+    @Slot(list)
+    def _handle_preprocess_success(self, processed_paths: list):
+        stats = self._pending_preprocess_stats
+        failed = stats.get("failed", 0)
+        images = self.image_gallery.image_paths
+        self._processed_image_paths = processed_paths
+
+        # Map processed outputs back to source images conservatively.
+        # If the counts don't match, avoid marking more sources as processed
+        # than there are processed outputs.
+        if len(processed_paths) != len(images):
+            logger.warning(
+                "Preprocessing reported %d processed image(s) for %d source image(s); "
+                "marking only a subset of source images as processed.",
+                len(processed_paths),
+                len(images),
+            )
+            processed_source_paths = list(images[: len(processed_paths)])
+        else:
+            processed_source_paths = list(images)
+
+        self._processed_source_paths = processed_source_paths
+        self.image_gallery.mark_processed(self._processed_source_paths)
+        self.control_panel.set_processed_count(len(processed_paths))
+        self.control_panel.set_processing(False)
+
+        if failed > 0:
+            self.progress_widget.show_error(
+                f"{failed} image(s) could not be preprocessed.",
+                "Check the log for details. Remaining images were processed successfully.",
+            )
+        else:
+            self.progress_widget.set_complete()
+
+        # Persist to project
+        project = self.project_manager.current_project
+        if project:
+            project.processed_images = [
+                str(Path(p).relative_to(project.project_path))
+                for p in processed_paths
+                if Path(p).is_relative_to(project.project_path)
+            ]
+            self._sync_preprocess_settings_to_project()
+            try:
+                self.project_manager.save_current_project()
+            except Exception:
+                pass
+
+        n = len(processed_paths)
+        self.status_bar.showMessage(
+            f"Foreground isolation complete. {n} image(s) processed."
+        )
+
+        if self._preprocess_then_reconstruct:
+            self._preprocess_then_reconstruct = False
+            self._start_reconstruction(self._processed_image_paths)
+
+    def _on_preprocess_error(self, error_code: str, message: str):
+        QMetaObject.invokeMethod(
+            self,
+            "_handle_preprocess_error",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(str, error_code),
+            Q_ARG(str, message),
+        )
+
+    @Slot(str, str)
+    def _handle_preprocess_error(self, error_code: str, message: str):
+        self.control_panel.set_processing(False)
+        self._preprocess_then_reconstruct = False
+        suggestions = {
+            "REMBG_UNAVAILABLE": "Install rembg with: pip install rembg",
+        }
+        suggestion = suggestions.get(error_code, "Check the log for details.")
+        self.progress_widget.show_error(message, suggestion)
+        self.status_bar.showMessage(f"Preprocessing error: {message}")
+
+    # ------------------------------------------------------------------
     # Reconstruction
     # ------------------------------------------------------------------
+
+    def _resolve_reconstruction_images(self) -> list[str]:
+        """Return the correct image list based on source selector and availability."""
+        source = self.control_panel.preprocess_source
+        if source == "processed" and self._processed_image_paths:
+            return self._processed_image_paths
+        return self.image_gallery.image_paths
 
     @Slot()
     def _on_generate(self):
@@ -289,10 +495,22 @@ class MainWindow(QMainWindow):
         if len(images) < 3:
             QMessageBox.warning(self, "Not enough images", "Add at least 3 images before generating.")
             return
-        if len(images) > 5:
-            QMessageBox.warning(self, "Too many images", "Use 3–5 images for best results.")
+        if len(images) > 50:
+            QMessageBox.warning(self, "Too many images", "Use 3–50 images for best results.")
             return
 
+        # Auto-isolate: run preprocess first, then chain into reconstruction
+        if self.control_panel.auto_isolate_enabled:
+            self._preprocess_then_reconstruct = True
+            self._start_preprocess(images)
+            return
+
+        # Use resolved source set (original or already-processed)
+        source_images = self._resolve_reconstruction_images()
+        self._start_reconstruction(source_images)
+
+    def _start_reconstruction(self, images: list[str]):
+        """Start the reconstruction pipeline with the given image list."""
         # Determine output path
         project = self.project_manager.current_project
         if project:
@@ -358,6 +576,7 @@ class MainWindow(QMainWindow):
         if self.project_manager.current_project and self._reconstructed_model_path:
             try:
                 self.project_manager.current_project.set_model(self._reconstructed_model_path)
+                self._sync_preprocess_settings_to_project()
                 self.project_manager.save_current_project()
             except Exception:
                 pass
@@ -376,7 +595,7 @@ class MainWindow(QMainWindow):
         self.control_panel.set_processing(False)
         suggestions = {
             "INSUFFICIENT_IMAGES": "Add at least 3 images.",
-            "TOO_MANY_IMAGES": "Use 3–5 images.",
+            "TOO_MANY_IMAGES": "Use 3–50 images.",
             "API_ERROR": "Check your API key in Settings or try Local mode.",
             "RECONSTRUCTION_FAILED": "Try different images or switch to Cloud mode.",
             "OPERATION_CANCELLED": "Operation was cancelled.",
@@ -461,6 +680,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_cancel(self):
         self.reconstruction_engine.cancel()
+        self._preprocess_then_reconstruct = False
         self.control_panel.set_processing(False)
         self.progress_widget.setVisible(False)
         self.status_bar.showMessage("Operation cancelled.")
@@ -475,9 +695,8 @@ class MainWindow(QMainWindow):
             # Wait briefly for the daemon thread to flush any partial output.
             # The thread is a daemon so the interpreter will not hang if the
             # timeout expires.
-            thread = self.reconstruction_engine._thread
-            if thread is not None:
-                thread.join(timeout=2.0)
+            self.reconstruction_engine.wait_for_completion(timeout=2.0)
+        self._sync_preprocess_settings_to_project()
         self.project_manager.close_current_project()
         self.config.set("ui.window_width", self.width())
         self.config.set("ui.window_height", self.height())

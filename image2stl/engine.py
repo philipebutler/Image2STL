@@ -211,7 +211,7 @@ def _validate_reconstruction(command: dict) -> dict | None:
     images = command.get("images", [])
     if len(images) < 3:
         return make_error("reconstruct", "INSUFFICIENT_IMAGES")
-    if len(images) > 5:
+    if len(images) > 50:
         return make_error("reconstruct", "TOO_MANY_IMAGES")
     for image in images:
         if Path(image).suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
@@ -623,5 +623,47 @@ def process_command(command: dict) -> list[dict]:
         images = command.get("images", [])
         warnings = check_image_quality(images)
         return [{"type": "success", "command": "check_images", "warnings": warnings}]
+
+    if cmd == "preprocess_images":
+        images = command.get("images", [])
+        output_dir = Path(command.get("outputDir", "preview/processed"))
+        strength = float(command.get("strength", 0.5))
+        hole_fill = bool(command.get("holeFill", True))
+        island_threshold = int(command.get("islandRemovalThreshold", 500))
+        crop_padding = int(command.get("cropPadding", 10))
+        try:
+            from .preprocess import preprocess_image
+        except ImportError:
+            error = make_error("preprocess_images", "REMBG_UNAVAILABLE")
+            error["detail"] = "rembg is not installed. Install it with: pip install rembg"
+            return [error]
+        processed = []
+        warnings: list[dict] = []
+        for image in images:
+            try:
+                out = preprocess_image(
+                    Path(image),
+                    output_dir,
+                    strength=strength,
+                    hole_fill=hole_fill,
+                    island_removal_threshold=island_threshold,
+                    crop_padding=crop_padding,
+                )
+                processed.append(str(out))
+            except ImportError:
+                error = make_error("preprocess_images", "REMBG_UNAVAILABLE")
+                error["detail"] = "rembg is not installed. Install it with: pip install rembg"
+                return [error]
+            except (OSError, ValueError, RuntimeError) as exc:
+                warnings.append({"path": image, "issue": "preprocess_failed", "detail": str(exc)})
+        return [
+            {
+                "type": "success",
+                "command": "preprocess_images",
+                "processedImages": processed,
+                "warnings": warnings,
+                "stats": {"processed": len(processed), "failed": len(warnings)},
+            }
+        ]
 
     return [make_error(cmd or "unknown", "RECONSTRUCTION_FAILED")]

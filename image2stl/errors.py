@@ -6,8 +6,8 @@ ERROR_DEFINITIONS = {
         "suggestion": "Add at least 3 images",
     },
     "TOO_MANY_IMAGES": {
-        "message": "Too many images for MVP",
-        "suggestion": "Use 3-5 images",
+        "message": "Too many images",
+        "suggestion": "Use 3-50 images",
     },
     "INSUFFICIENT_FEATURES": {
         "message": "Images too similar or low quality",
@@ -48,6 +48,10 @@ ERROR_DEFINITIONS = {
     "IMAGE_QUALITY_WARNING": {
         "message": "One or more images may have quality issues",
         "suggestion": "Use well-lit, sharp images from varied angles at 512x512 or higher",
+    },
+    "REMBG_UNAVAILABLE": {
+        "message": "rembg library is not installed",
+        "suggestion": "Install rembg with: pip install rembg",
     },
 }
 

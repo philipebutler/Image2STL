@@ -23,7 +23,7 @@ class Config:
             "scale_mm": 150.0,
             "reconstruction_mode": "local",
             "min_images": 3,
-            "max_images": 5,
+            "max_images": 50,
         },
         "triposr": {
             "model_path": "models/triposr",
@@ -48,6 +48,15 @@ class Config:
             "window_height": 800,
             "show_grid": True,
             "show_axes": True,
+        },
+        "preprocess": {
+            "enabled": False,
+            "auto_on_generate": False,
+            "strength": 0.5,
+            "hole_fill_enabled": True,
+            "island_removal_threshold": 500,
+            "crop_padding": 10,
+            "processed_dir": "preview/processed",
         },
     }
 

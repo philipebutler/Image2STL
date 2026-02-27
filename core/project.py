@@ -31,6 +31,13 @@ class ProjectSettings:
     scale_mm: float = 150.0
     scale_axis: str = "longest"
     mesh_quality: str = "medium"
+    # Foreground isolation / preprocessing
+    auto_isolate_enabled: bool = False
+    preprocess_strength: float = 0.5
+    preprocess_source_mode: str = "original"
+    hole_fill_enabled: bool = True
+    island_removal_threshold: int = 500
+    crop_padding: int = 10
 
 
 @dataclass
@@ -43,6 +50,7 @@ class Project:
     created: str
     last_modified: str
     images: List[str] = field(default_factory=list)
+    processed_images: List[str] = field(default_factory=list)
     model_path: Optional[str] = None
     settings: ProjectSettings = field(default_factory=ProjectSettings)
     schema_version: str = PROJECT_SCHEMA_VERSION
@@ -172,6 +180,7 @@ class Project:
             "created": self.created,
             "last_modified": self.last_modified,
             "images": self.images,
+            "processed_images": self.processed_images,
             "model_path": self.model_path,
             "settings": asdict(self.settings),
             "schema_version": self.schema_version,
@@ -196,6 +205,7 @@ class Project:
             created=data["created"],
             last_modified=data["last_modified"],
             images=data.get("images", []),
+            processed_images=data.get("processed_images", []),
             model_path=data.get("model_path"),
             settings=settings,
             schema_version=data.get("schema_version", PROJECT_SCHEMA_VERSION),

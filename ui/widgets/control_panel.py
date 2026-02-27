@@ -12,18 +12,27 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QButtonGroup,
     QDoubleSpinBox,
+    QSpinBox,
+    QCheckBox,
     QComboBox,
     QPushButton,
     QGroupBox,
+    QFrame,
 )
 
 
 class ControlPanel(QWidget):
-    """Horizontal bar containing reconstruction controls and action buttons."""
+    """Control bar containing reconstruction controls and action buttons.
+
+    Layout (vertical):
+      Row 1 – Mode | Scale | Action buttons
+      Row 2 – Foreground Isolation group (compact + collapsible advanced panel)
+    """
 
     generate_requested = Signal()
     export_requested = Signal()
     cancel_requested = Signal()
+    preprocess_requested = Signal()
 
     def __init__(self, config=None, parent=None):
         super().__init__(parent)
@@ -31,7 +40,7 @@ class ControlPanel(QWidget):
         self._build_ui()
 
     # ------------------------------------------------------------------
-    # Public API
+    # Public API – reconstruction
     # ------------------------------------------------------------------
 
     @property
@@ -47,19 +56,92 @@ class ControlPanel(QWidget):
         return self._axis_combo.currentText()
 
     def set_processing(self, is_processing: bool):
-        """Enable/disable controls during reconstruction."""
+        """Enable/disable controls during reconstruction or preprocessing."""
         self._generate_btn.setEnabled(not is_processing)
         self._cancel_btn.setVisible(is_processing)
         self._export_btn.setEnabled(not is_processing)
+        self._preprocess_btn.setEnabled(not is_processing)
+
+    def enable_export(self, enabled: bool = True):
+        """Enable or disable the Export STL button."""
+        self._export_btn.setEnabled(enabled)
+
+    # ------------------------------------------------------------------
+    # Public API – foreground isolation
+    # ------------------------------------------------------------------
+
+    @property
+    def auto_isolate_enabled(self) -> bool:
+        return self._auto_isolate_cb.isChecked()
+
+    @property
+    def preprocess_source(self) -> str:
+        """Returns 'original' or 'processed'."""
+        return "processed" if self._source_combo.currentIndex() == 1 else "original"
+
+    @property
+    def preprocess_strength(self) -> float:
+        return self._strength_spin.value()
+
+    @property
+    def hole_fill_enabled(self) -> bool:
+        return self._hole_fill_cb.isChecked()
+
+    @property
+    def island_removal_threshold(self) -> int:
+        return self._island_spin.value()
+
+    @property
+    def crop_padding(self) -> int:
+        return self._crop_padding_spin.value()
+
+    def set_processed_count(self, count: int):
+        """Update the 'N processed' label in the isolation group."""
+        if count > 0:
+            self._processed_status_label.setText(f"✓ {count} processed")
+            self._processed_status_label.setStyleSheet("color: #3a3; font-size: 11px;")
+        else:
+            self._processed_status_label.setText("No processed images")
+            self._processed_status_label.setStyleSheet("color: #888; font-size: 11px;")
+
+    def load_isolation_settings(
+        self,
+        auto_isolate: bool,
+        strength: float,
+        source: str,
+        hole_fill: bool,
+        island_threshold: int,
+        crop_padding: int,
+    ):
+        """Restore isolation settings from a saved project into the UI controls.
+
+        Args:
+            auto_isolate: Whether Auto Isolate should be checked.
+            strength: Preprocessing strength value (0.0–1.0).
+            source: Source selector value – "original" or "processed".
+            hole_fill: Whether Fill holes should be checked.
+            island_threshold: Island removal threshold value.
+            crop_padding: Crop padding value in pixels.
+        """
+        self._auto_isolate_cb.setChecked(auto_isolate)
+        self._strength_spin.setValue(strength)
+        self._source_combo.setCurrentIndex(1 if source == "processed" else 0)
+        self._hole_fill_cb.setChecked(hole_fill)
+        self._island_spin.setValue(island_threshold)
+        self._crop_padding_spin.setValue(crop_padding)
 
     # ------------------------------------------------------------------
     # Internal UI build
     # ------------------------------------------------------------------
 
     def _build_ui(self):
-        main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(16)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(6)
+
+        # ---- Row 1: Mode | Scale | Buttons ----
+        top_row = QHBoxLayout()
+        top_row.setSpacing(16)
 
         # --- Reconstruction mode ---
         mode_group = QGroupBox("Mode")
@@ -76,7 +158,7 @@ class ControlPanel(QWidget):
 
         mode_layout.addWidget(self._local_radio)
         mode_layout.addWidget(self._cloud_radio)
-        main_layout.addWidget(mode_group)
+        top_row.addWidget(mode_group)
 
         # --- Scale controls ---
         scale_group = QGroupBox("Scale")
@@ -99,7 +181,7 @@ class ControlPanel(QWidget):
         self._axis_combo.setFixedWidth(100)
         scale_layout.addWidget(self._axis_combo)
 
-        main_layout.addWidget(scale_group)
+        top_row.addWidget(scale_group)
 
         # --- Action buttons ---
         btn_layout = QHBoxLayout()
@@ -120,9 +202,103 @@ class ControlPanel(QWidget):
         self._cancel_btn.clicked.connect(self.cancel_requested)
         btn_layout.addWidget(self._cancel_btn)
 
-        main_layout.addLayout(btn_layout)
-        main_layout.addStretch(1)
+        top_row.addLayout(btn_layout)
+        top_row.addStretch(1)
+        outer.addLayout(top_row)
 
-    def enable_export(self, enabled: bool = True):
-        """Enable or disable the Export STL button."""
-        self._export_btn.setEnabled(enabled)
+        # ---- Row 2: Foreground Isolation ----
+        outer.addWidget(self._build_isolation_row())
+
+    def _build_isolation_row(self) -> QGroupBox:
+        """Build the Foreground Isolation group box with compact + advanced rows."""
+        iso_group = QGroupBox("Foreground Isolation")
+        iso_outer = QVBoxLayout(iso_group)
+        iso_outer.setSpacing(4)
+        iso_outer.setContentsMargins(8, 4, 8, 4)
+
+        # Compact row
+        compact = QHBoxLayout()
+        compact.setSpacing(10)
+
+        self._auto_isolate_cb = QCheckBox("Auto Isolate")
+        self._auto_isolate_cb.setToolTip(
+            "Automatically remove backgrounds before reconstruction"
+        )
+        compact.addWidget(self._auto_isolate_cb)
+
+        self._preprocess_btn = QPushButton("Run Preprocess")
+        self._preprocess_btn.setToolTip("Manually run foreground isolation on all images now")
+        self._preprocess_btn.clicked.connect(self.preprocess_requested)
+        compact.addWidget(self._preprocess_btn)
+
+        compact.addWidget(QLabel("Source:"))
+        self._source_combo = QComboBox()
+        self._source_combo.addItems(["Original", "Processed"])
+        self._source_combo.setFixedWidth(110)
+        self._source_combo.setToolTip(
+            "Choose which image set to send to reconstruction"
+        )
+        compact.addWidget(self._source_combo)
+
+        compact.addWidget(QLabel("Strength:"))
+        self._strength_spin = QDoubleSpinBox()
+        self._strength_spin.setRange(0.0, 1.0)
+        self._strength_spin.setSingleStep(0.1)
+        self._strength_spin.setValue(0.5)
+        self._strength_spin.setDecimals(1)
+        self._strength_spin.setFixedWidth(64)
+        self._strength_spin.setToolTip("Background removal strength (0.0 = light, 1.0 = aggressive)")
+        compact.addWidget(self._strength_spin)
+
+        self._processed_status_label = QLabel("No processed images")
+        self._processed_status_label.setStyleSheet("color: #888; font-size: 11px;")
+        compact.addWidget(self._processed_status_label)
+
+        self._advanced_toggle_btn = QPushButton("Advanced ▸")
+        self._advanced_toggle_btn.setFixedWidth(100)
+        self._advanced_toggle_btn.setCheckable(True)
+        self._advanced_toggle_btn.setChecked(False)
+        self._advanced_toggle_btn.clicked.connect(self._toggle_advanced)
+        compact.addWidget(self._advanced_toggle_btn)
+
+        compact.addStretch(1)
+        iso_outer.addLayout(compact)
+
+        # Advanced row (hidden by default)
+        self._advanced_panel = QFrame()
+        self._advanced_panel.setVisible(False)
+        adv_layout = QHBoxLayout(self._advanced_panel)
+        adv_layout.setSpacing(10)
+        adv_layout.setContentsMargins(0, 0, 0, 0)
+
+        self._hole_fill_cb = QCheckBox("Fill holes")
+        self._hole_fill_cb.setChecked(True)
+        self._hole_fill_cb.setToolTip("Fill small holes in the foreground mask")
+        adv_layout.addWidget(self._hole_fill_cb)
+
+        adv_layout.addWidget(QLabel("Island threshold:"))
+        self._island_spin = QSpinBox()
+        self._island_spin.setRange(0, 10000)
+        self._island_spin.setValue(500)
+        self._island_spin.setFixedWidth(80)
+        self._island_spin.setToolTip(
+            "Minimum pixel area for a foreground region to be kept (0 = keep all)"
+        )
+        adv_layout.addWidget(self._island_spin)
+
+        adv_layout.addWidget(QLabel("Crop padding (px):"))
+        self._crop_padding_spin = QSpinBox()
+        self._crop_padding_spin.setRange(0, 200)
+        self._crop_padding_spin.setValue(10)
+        self._crop_padding_spin.setFixedWidth(64)
+        self._crop_padding_spin.setToolTip("Extra pixels to leave around the tight foreground crop")
+        adv_layout.addWidget(self._crop_padding_spin)
+
+        adv_layout.addStretch(1)
+        iso_outer.addWidget(self._advanced_panel)
+
+        return iso_group
+
+    def _toggle_advanced(self, checked: bool):
+        self._advanced_panel.setVisible(checked)
+        self._advanced_toggle_btn.setText("Advanced ▾" if checked else "Advanced ▸")
