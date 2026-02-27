@@ -3,6 +3,8 @@ Main application window
 """
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -36,6 +38,8 @@ from ui.dialogs.export_dialog import ExportDialog
 
 logger = logging.getLogger(__name__)
 
+_SETTINGS_HASH_SUFFIX_RE = re.compile(r"_[0-9a-fA-F]{8}$")
+
 
 class MainWindow(QMainWindow):
     """Main application window"""
@@ -54,9 +58,6 @@ class MainWindow(QMainWindow):
         # When True, a preprocess run triggered automatically should chain
         # directly into reconstruction once it completes.
         self._preprocess_then_reconstruct: bool = False
-        # Holds the stats dict from the most recent preprocessing run so it
-        # can be read by the main-thread slot after QMetaObject dispatch.
-        self._pending_preprocess_stats: dict = {}
 
         self._init_ui()
         self._connect_signals()
@@ -250,15 +251,12 @@ class MainWindow(QMainWindow):
             ]
             self._processed_image_paths = processed_abs
 
-            # Determine which source images actually have corresponding processed versions.
-            # We match by filename stem to be resilient to directory differences.
-            processed_stems = {Path(p).stem for p in processed_abs}
-            self._processed_source_paths = [
-                src_path
-                for src_path in image_paths
-                if Path(src_path).stem in processed_stems
-            ]
-            self.image_gallery.mark_processed(self._processed_source_paths)
+            preview_map = self._build_processed_preview_map(image_paths, processed_abs)
+            self._processed_source_paths = list(preview_map.keys())
+            self.image_gallery.mark_processed(
+                self._processed_source_paths,
+                processed_preview_map=preview_map,
+            )
             self.control_panel.set_processed_count(len(processed_abs))
 
             # Restore isolation settings from project
@@ -338,7 +336,7 @@ class MainWindow(QMainWindow):
         if self._processed_source_paths or self._processed_image_paths:
             self._processed_source_paths = []
             self._processed_image_paths = []
-            self.image_gallery.mark_processed([])
+            self.image_gallery.mark_processed([], processed_preview_map={})
             self.control_panel.set_processed_count(0)
 
         # Keep project in sync
@@ -392,38 +390,44 @@ class MainWindow(QMainWindow):
         )
 
     def _on_preprocess_success(self, processed_paths: list, stats: dict):
-        # Stash stats so the main-thread slot can read them without extra Q_ARG types.
-        self._pending_preprocess_stats = stats
+        payload = json.dumps(
+            {
+                "processed_paths": [str(p) for p in (processed_paths or [])],
+                "stats": stats or {},
+            }
+        )
         QMetaObject.invokeMethod(
             self,
             "_handle_preprocess_success",
             Qt.ConnectionType.QueuedConnection,
-            Q_ARG(list, processed_paths),
+            Q_ARG(str, payload),
         )
 
-    @Slot(list)
-    def _handle_preprocess_success(self, processed_paths: list):
-        stats = self._pending_preprocess_stats
+    @Slot(str)
+    def _handle_preprocess_success(self, payload: str):
+        try:
+            parsed = json.loads(payload) if payload else {}
+        except (TypeError, ValueError):
+            parsed = {}
+        processed_paths = [str(p) for p in parsed.get("processed_paths", [])]
+        stats = parsed.get("stats", {})
         failed = stats.get("failed", 0)
         images = self.image_gallery.image_paths
         self._processed_image_paths = processed_paths
 
-        # Map processed outputs back to source images conservatively.
-        # If the counts don't match, avoid marking more sources as processed
-        # than there are processed outputs.
-        if len(processed_paths) != len(images):
+        preview_map = self._build_processed_preview_map(images, processed_paths)
+        if len(preview_map) != len(processed_paths):
             logger.warning(
-                "Preprocessing reported %d processed image(s) for %d source image(s); "
-                "marking only a subset of source images as processed.",
+                "Mapped %d processed preview(s) from %d processed image(s).",
+                len(preview_map),
                 len(processed_paths),
-                len(images),
             )
-            processed_source_paths = list(images[: len(processed_paths)])
-        else:
-            processed_source_paths = list(images)
 
-        self._processed_source_paths = processed_source_paths
-        self.image_gallery.mark_processed(self._processed_source_paths)
+        self._processed_source_paths = list(preview_map.keys())
+        self.image_gallery.mark_processed(
+            self._processed_source_paths,
+            processed_preview_map=preview_map,
+        )
         self.control_panel.set_processed_count(len(processed_paths))
         self.control_panel.set_processing(False)
 
@@ -458,17 +462,56 @@ class MainWindow(QMainWindow):
             self._preprocess_then_reconstruct = False
             self._start_reconstruction(self._processed_image_paths)
 
+    def _build_processed_preview_map(
+        self,
+        source_images: list[str],
+        processed_paths: list[str],
+    ) -> dict[str, str]:
+        """Build a mapping from source image path to processed preview path."""
+        source_map = {Path(src).stem: src for src in source_images}
+        preview_map: dict[str, str] = {}
+        unmatched_processed: list[str] = []
+
+        for processed in processed_paths:
+            processed_stem = Path(processed).stem
+            source_stem = self._extract_source_stem_from_processed(processed_stem)
+            source_path = source_map.get(source_stem)
+            if source_path and source_path not in preview_map:
+                preview_map[source_path] = processed
+            else:
+                unmatched_processed.append(processed)
+
+        if unmatched_processed:
+            remaining_sources = [src for src in source_images if src not in preview_map]
+            for src, processed in zip(remaining_sources, unmatched_processed):
+                preview_map[src] = processed
+
+        return preview_map
+
+    def _extract_source_stem_from_processed(self, processed_stem: str) -> str:
+        """Extract the original source stem from a processed output stem."""
+        base = processed_stem
+        if base.endswith("_processed"):
+            base = base[: -len("_processed")]
+        return _SETTINGS_HASH_SUFFIX_RE.sub("", base)
+
     def _on_preprocess_error(self, error_code: str, message: str):
+        payload = json.dumps({"error_code": error_code, "message": message})
         QMetaObject.invokeMethod(
             self,
             "_handle_preprocess_error",
             Qt.ConnectionType.QueuedConnection,
-            Q_ARG(str, error_code),
-            Q_ARG(str, message),
+            Q_ARG(str, payload),
         )
 
-    @Slot(str, str)
-    def _handle_preprocess_error(self, error_code: str, message: str):
+    @Slot(str)
+    def _handle_preprocess_error(self, payload: str):
+        try:
+            parsed = json.loads(payload) if payload else {}
+        except (TypeError, ValueError):
+            parsed = {}
+        error_code = str(parsed.get("error_code", ""))
+        message = str(parsed.get("message", "Unknown preprocessing error"))
         self.control_panel.set_processing(False)
         self._preprocess_then_reconstruct = False
         suggestions = {
@@ -539,29 +582,47 @@ class MainWindow(QMainWindow):
     def _on_engine_progress(self, fraction: float, status: str, estimated_seconds):
         # Called from background thread – use invokeMethod for thread safety
         estimated_seconds_int = int(estimated_seconds) if isinstance(estimated_seconds, (int, float)) else -1
+        payload = json.dumps(
+            {
+                "fraction": float(fraction),
+                "status": str(status),
+                "estimated_seconds": estimated_seconds_int,
+            }
+        )
         QMetaObject.invokeMethod(
             self,
             "_update_progress",
             Qt.ConnectionType.QueuedConnection,
-            Q_ARG(float, fraction),
-            Q_ARG(str, status),
-            Q_ARG(int, estimated_seconds_int),
+            Q_ARG(str, payload),
         )
 
-    @Slot(float, str, int)
-    def _update_progress(self, fraction: float, status: str, estimated_seconds: int):
+    @Slot(str)
+    def _update_progress(self, payload: str):
+        try:
+            parsed = json.loads(payload) if payload else {}
+        except (TypeError, ValueError):
+            parsed = {}
+        fraction = float(parsed.get("fraction", 0.0))
+        status = str(parsed.get("status", ""))
+        estimated_seconds = int(parsed.get("estimated_seconds", -1))
         self.progress_widget.set_progress(fraction, status, None if estimated_seconds < 0 else estimated_seconds)
 
     def _on_engine_success(self, output_path_str: str, stats: dict):
+        payload = json.dumps({"output_path": output_path_str})
         QMetaObject.invokeMethod(
             self,
             "_handle_success",
             Qt.ConnectionType.QueuedConnection,
-            Q_ARG(str, output_path_str),
+            Q_ARG(str, payload),
         )
 
     @Slot(str)
-    def _handle_success(self, output_path_str: str):
+    def _handle_success(self, payload: str):
+        try:
+            parsed = json.loads(payload) if payload else {}
+        except (TypeError, ValueError):
+            parsed = {}
+        output_path_str = str(parsed.get("output_path", ""))
         self._reconstructed_model_path = Path(output_path_str) if output_path_str else None
         self.progress_widget.set_complete()
         self.control_panel.set_processing(False)
@@ -582,16 +643,22 @@ class MainWindow(QMainWindow):
                 pass
 
     def _on_engine_error(self, error_code: str, message: str):
+        payload = json.dumps({"error_code": error_code, "message": message})
         QMetaObject.invokeMethod(
             self,
             "_handle_error",
             Qt.ConnectionType.QueuedConnection,
-            Q_ARG(str, error_code),
-            Q_ARG(str, message),
+            Q_ARG(str, payload),
         )
 
-    @Slot(str, str)
-    def _handle_error(self, error_code: str, message: str):
+    @Slot(str)
+    def _handle_error(self, payload: str):
+        try:
+            parsed = json.loads(payload) if payload else {}
+        except (TypeError, ValueError):
+            parsed = {}
+        error_code = str(parsed.get("error_code", ""))
+        message = str(parsed.get("message", "Unknown reconstruction error"))
         self.control_panel.set_processing(False)
         suggestions = {
             "INSUFFICIENT_IMAGES": "Add at least 3 images.",
@@ -644,16 +711,22 @@ class MainWindow(QMainWindow):
         )
 
     def _on_export_success(self, output_path_str: str, scale_factor: float):
+        payload = json.dumps({"output_path": output_path_str, "scale_factor": float(scale_factor)})
         QMetaObject.invokeMethod(
             self,
             "_handle_export_success",
             Qt.ConnectionType.QueuedConnection,
-            Q_ARG(str, output_path_str),
-            Q_ARG(float, scale_factor),
+            Q_ARG(str, payload),
         )
 
-    @Slot(str, float)
-    def _handle_export_success(self, output_path_str: str, scale_factor: float):
+    @Slot(str)
+    def _handle_export_success(self, payload: str):
+        try:
+            parsed = json.loads(payload) if payload else {}
+        except (TypeError, ValueError):
+            parsed = {}
+        output_path_str = str(parsed.get("output_path", ""))
+        scale_factor = float(parsed.get("scale_factor", 1.0))
         self.control_panel.set_processing(False)
         name = Path(output_path_str).name if output_path_str else "file"
         self.status_bar.showMessage(
@@ -661,15 +734,21 @@ class MainWindow(QMainWindow):
         )
 
     def _on_export_error(self, error_code: str, message: str):
+        payload = json.dumps({"error_code": error_code, "message": message})
         QMetaObject.invokeMethod(
             self,
             "_handle_export_error",
             Qt.ConnectionType.QueuedConnection,
-            Q_ARG(str, message),
+            Q_ARG(str, payload),
         )
 
     @Slot(str)
-    def _handle_export_error(self, message: str):
+    def _handle_export_error(self, payload: str):
+        try:
+            parsed = json.loads(payload) if payload else {}
+        except (TypeError, ValueError):
+            parsed = {}
+        message = str(parsed.get("message", "Unknown export error"))
         self.control_panel.set_processing(False)
         QMessageBox.critical(self, "Export failed", message)
 

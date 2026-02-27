@@ -103,3 +103,51 @@ RuntimeError: qArgDataFromPyType: Unable to find a QMetaType for "object".
 2026-02-24 22:44:44,772 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
 2026-02-24 22:44:44,956 - __main__ - INFO - Application started successfully
 2026-02-24 22:53:29,183 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:12:27,693 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:12:27,888 - __main__ - INFO - Application started successfully
+2026-02-26 21:14:29,562 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:15:42,532 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:15:42,676 - __main__ - INFO - Application started successfully
+2026-02-26 21:17:50,739 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:23:11,395 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:23:11,566 - __main__ - INFO - Application started successfully
+2026-02-26 21:23:41,378 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:26:25,726 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:26:25,914 - __main__ - INFO - Application started successfully
+2026-02-26 21:26:42,059 - core.reconstruction_engine - ERROR - on_success callback raised an exception
+Traceback (most recent call last):
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/core/reconstruction_engine.py", line 208, in _run
+    on_success(
+  File "/Users/philipbutler/Documents/GitHub/Image2STL/ui/main_window.py", line 401, in _on_preprocess_success
+    Q_ARG(list, processed_paths),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: qArgDataFromPyType: Unable to find a QMetaType for "list".
+2026-02-26 21:27:58,474 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:30:31,636 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:30:31,800 - __main__ - INFO - Application started successfully
+2026-02-26 21:31:29,475 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:33:19,504 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:33:19,686 - __main__ - INFO - Application started successfully
+2026-02-26 21:35:02,446 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:36:17,052 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:36:17,334 - __main__ - INFO - Application started successfully
+2026-02-26 21:36:28,715 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/config.yaml "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 21:36:28,748 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/stabilityai/TripoSR/5b521936b01fbe1890f6f9baed0254ab6351c04a/config.yaml "HTTP/1.1 200 OK"
+2026-02-26 21:36:28,824 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/model.ckpt "HTTP/1.1 302 Found"
+2026-02-26 21:36:30,182 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/facebook/dino-vitb16/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 21:36:30,218 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/dino-vitb16/f205d5d8e640a89a2b8ef0369670dfc37cc07fc2/config.json "HTTP/1.1 200 OK"
+2026-02-26 21:37:11,024 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/config.yaml "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 21:37:11,065 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/stabilityai/TripoSR/5b521936b01fbe1890f6f9baed0254ab6351c04a/config.yaml "HTTP/1.1 200 OK"
+2026-02-26 21:37:11,151 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/model.ckpt "HTTP/1.1 302 Found"
+2026-02-26 21:37:11,236 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/facebook/dino-vitb16/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 21:37:11,318 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/dino-vitb16/f205d5d8e640a89a2b8ef0369670dfc37cc07fc2/config.json "HTTP/1.1 200 OK"
+2026-02-26 21:39:46,455 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:45:14,807 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:45:15,004 - __main__ - INFO - Application started successfully
+2026-02-26 21:47:07,327 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:58:04,385 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:58:04,540 - __main__ - INFO - Application started successfully
+2026-02-26 21:58:25,324 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:59:29,328 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
+2026-02-26 21:59:29,480 - __main__ - INFO - Application started successfully
+2026-02-26 21:59:37,897 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json

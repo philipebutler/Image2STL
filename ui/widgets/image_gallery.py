@@ -4,7 +4,7 @@ Image gallery widget - displays image thumbnails in a scrollable grid.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap, QDragEnterEvent, QDropEvent
@@ -42,6 +42,7 @@ class _ImageTile(QFrame):
     def __init__(self, file_path: str, parent=None):
         super().__init__(parent)
         self.file_path = file_path
+        self._display_file_path = file_path
         # Use a stylesheet-managed border so we can restore it precisely when
         # the 'processed' indicator is toggled off (setFrameStyle() uses the
         # internal QPainter which stylesheet rules override unpredictably).
@@ -58,7 +59,7 @@ class _ImageTile(QFrame):
         self._thumb.setFixedSize(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)
         self._thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._thumb.setStyleSheet("background: #2a2a2a;")
-        self._load_thumbnail(file_path)
+        self._load_thumbnail(self._display_file_path)
         layout.addWidget(self._thumb)
 
         # Bottom row: filename + processed tag + remove button
@@ -97,9 +98,23 @@ class _ImageTile(QFrame):
         else:
             self.setStyleSheet(self._default_style)
 
+    def set_display_path(self, display_path: str | None):
+        """Set the image path used for thumbnail display.
+
+        Args:
+            display_path: Optional alternate path (e.g., processed image). If
+                not provided, falls back to the original source path.
+        """
+        resolved_path = display_path if display_path else self.file_path
+        if resolved_path == self._display_file_path:
+            return
+        self._display_file_path = resolved_path
+        self._load_thumbnail(self._display_file_path)
+
     def _load_thumbnail(self, file_path: str):
         pixmap = QPixmap(file_path)
         if not pixmap.isNull():
+            self._thumb.clear()
             pixmap = pixmap.scaled(
                 THUMBNAIL_WIDTH,
                 THUMBNAIL_HEIGHT,
@@ -108,6 +123,7 @@ class _ImageTile(QFrame):
             )
             self._thumb.setPixmap(pixmap)
         else:
+            self._thumb.setPixmap(QPixmap())
             self._thumb.setText("(preview\nunavailable)")
             self._thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -124,6 +140,7 @@ class ImageGallery(QWidget):
         super().__init__(parent)
         self._image_paths: List[str] = []
         self._tiles: List[_ImageTile] = []
+        self._processed_preview_map: Dict[str, str] = {}
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -167,6 +184,7 @@ class ImageGallery(QWidget):
             added += 1
 
         if added:
+            self._apply_processed_preview_map()
             self.images_changed.emit(list(self._image_paths))
         return added
 
@@ -174,6 +192,8 @@ class ImageGallery(QWidget):
         """Remove a single image from the gallery."""
         if file_path not in self._image_paths:
             return
+
+        self._processed_preview_map.pop(file_path, None)
 
         for tile in list(self._tiles):
             if tile.file_path == file_path:
@@ -192,6 +212,7 @@ class ImageGallery(QWidget):
             tile.deleteLater()
         self._tiles.clear()
         self._image_paths.clear()
+        self._processed_preview_map.clear()
         self.images_changed.emit([])
 
     @property
@@ -202,17 +223,34 @@ class ImageGallery(QWidget):
     def image_count(self) -> int:
         return len(self._image_paths)
 
-    def mark_processed(self, processed_source_paths: list):
+    def mark_processed(
+        self,
+        processed_source_paths: list,
+        processed_preview_map: Dict[str, str] | None = None,
+    ):
         """Mark tiles whose source paths have been preprocessed.
 
         Args:
             processed_source_paths: List of original source file paths that now
-                have corresponding processed versions available.  Pass an empty
+                have corresponding processed versions available. Pass an empty
                 list to clear all processed indicators.
+            processed_preview_map: Optional mapping from source image path to
+                processed image path to use for thumbnail preview display.
         """
         processed_set = set(processed_source_paths)
+        self._processed_preview_map = {
+            str(src): str(dst)
+            for src, dst in (processed_preview_map or {}).items()
+            if str(src) in self._image_paths
+        }
         for tile in self._tiles:
             tile.set_processed(tile.file_path in processed_set)
+            tile.set_display_path(self._processed_preview_map.get(tile.file_path))
+
+    def _apply_processed_preview_map(self):
+        """Apply current source→processed preview mapping to all tiles."""
+        for tile in self._tiles:
+            tile.set_display_path(self._processed_preview_map.get(tile.file_path))
 
     # ------------------------------------------------------------------
     # Drag-and-drop

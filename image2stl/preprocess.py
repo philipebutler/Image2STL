@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from pathlib import Path
 
 
@@ -70,15 +71,29 @@ def preprocess_image(
 
     with Image.open(source_path) as img:
         if strength > 0.0:
-            # Use alpha matting for finer edge detail; map strength to the
-            # foreground-confidence threshold (higher strength → more pixels
-            # counted as foreground → more aggressive cutout).
-            fg_threshold = max(1, int(strength * 240))
-            rgba = rembg_remove(
-                img,
-                alpha_matting=True,
-                alpha_matting_foreground_threshold=fg_threshold,
-            )
+            # Use alpha matting with conservative defaults to avoid noisy/grainy
+            # foreground edges. Strength still controls aggressiveness, but we
+            # keep thresholds in a high-confidence range.
+            strength_clamped = max(0.0, min(1.0, float(strength)))
+            fg_threshold = int(210 + (strength_clamped * 35))
+            bg_threshold = int(8 + ((1.0 - strength_clamped) * 10))
+            erode_size = int(max(1, math.ceil((1.0 - strength_clamped) * 4)))
+
+            try:
+                rgba = rembg_remove(
+                    img,
+                    alpha_matting=True,
+                    alpha_matting_foreground_threshold=fg_threshold,
+                    alpha_matting_background_threshold=bg_threshold,
+                    alpha_matting_erode_size=erode_size,
+                )
+            except TypeError:
+                # Older rembg versions may not support all alpha-matting kwargs.
+                rgba = rembg_remove(
+                    img,
+                    alpha_matting=True,
+                    alpha_matting_foreground_threshold=fg_threshold,
+                )
         else:
             rgba = rembg_remove(img)
 
@@ -96,16 +111,38 @@ def _postprocess_mask(rgba_image, hole_fill: bool, island_threshold: int, crop_p
         return rgba_image
 
     arr = np.array(rgba_image)
-    mask = arr[:, :, 3].copy()
+    original_alpha = arr[:, :, 3].copy()
+    cleanup_mask = (original_alpha > 10).astype(np.uint8) * 255
 
     if hole_fill:
-        mask = _fill_holes(mask)
+        cleanup_mask = _fill_holes(cleanup_mask)
     if island_threshold > 0:
-        mask = _remove_small_islands(mask, island_threshold)
+        cleanup_mask = _remove_small_islands(cleanup_mask, island_threshold)
 
-    arr[:, :, 3] = mask
+    original_alpha = _smooth_alpha_channel(original_alpha)
+    keep_region = cleanup_mask > 0
+    arr[:, :, 3] = np.where(keep_region, original_alpha, 0).astype(original_alpha.dtype)
     arr = _tight_crop_and_square_pad(arr, crop_padding)
     return Image.fromarray(arr, mode="RGBA")
+
+
+def _smooth_alpha_channel(alpha_channel):
+    """Apply light denoising to alpha while preserving edge softness."""
+    try:
+        from scipy import ndimage  # type: ignore
+
+        smoothed = ndimage.gaussian_filter(alpha_channel.astype(float), sigma=0.7)
+        return smoothed.clip(0, 255).astype(alpha_channel.dtype)
+    except (ImportError, ModuleNotFoundError):
+        try:
+            import numpy as np
+            from PIL import Image, ImageFilter
+
+            pil_alpha = Image.fromarray(alpha_channel, mode="L")
+            pil_alpha = pil_alpha.filter(ImageFilter.GaussianBlur(radius=0.8))
+            return np.array(pil_alpha).astype(alpha_channel.dtype)
+        except (ImportError, ModuleNotFoundError):
+            return alpha_channel
 
 
 def _fill_holes(mask):
