@@ -56,6 +56,7 @@ class Config:
             "hole_fill_enabled": True,
             "island_removal_threshold": 500,
             "crop_padding": 10,
+            "min_output_size": 512,
             "processed_dir": "preview/processed",
         },
     }

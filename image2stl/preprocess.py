@@ -29,6 +29,7 @@ def preprocess_image(
     hole_fill: bool = True,
     island_removal_threshold: int = 500,
     crop_padding: int = 10,
+    min_output_size: int = 512,
 ) -> Path:
     """Isolate the foreground in an image and save the result as RGBA PNG.
 
@@ -39,6 +40,9 @@ def preprocess_image(
         hole_fill: Whether to fill holes in the mask.
         island_removal_threshold: Minimum connected component size to keep.
         crop_padding: Padding (in pixels) to add around the tight crop.
+        min_output_size: Minimum output image dimension in pixels.  If the
+            processed image is smaller than this, it is upscaled using
+            high-quality (LANCZOS) resampling so the result is never pixelated.
 
     Returns:
         Path to the processed RGBA PNG file.
@@ -97,13 +101,13 @@ def preprocess_image(
         else:
             rgba = rembg_remove(img)
 
-    rgba = _postprocess_mask(rgba, hole_fill, island_removal_threshold, crop_padding)
+    rgba = _postprocess_mask(rgba, hole_fill, island_removal_threshold, crop_padding, min_output_size)
     rgba.save(str(output_path), format="PNG")
     return output_path
 
 
-def _postprocess_mask(rgba_image, hole_fill: bool, island_threshold: int, crop_padding: int):
-    """Apply mask cleanup, tight crop, and square pad to an RGBA image."""
+def _postprocess_mask(rgba_image, hole_fill: bool, island_threshold: int, crop_padding: int, min_output_size: int = 512):
+    """Apply mask cleanup, tight crop, square pad, and minimum-size upscale to an RGBA image."""
     try:
         import numpy as np
         from PIL import Image
@@ -123,7 +127,18 @@ def _postprocess_mask(rgba_image, hole_fill: bool, island_threshold: int, crop_p
     keep_region = cleanup_mask > 0
     arr[:, :, 3] = np.where(keep_region, original_alpha, 0).astype(original_alpha.dtype)
     arr = _tight_crop_and_square_pad(arr, crop_padding)
-    return Image.fromarray(arr, mode="RGBA")
+    result = Image.fromarray(arr, mode="RGBA")
+
+    # Upscale to min_output_size if the result is too small so that the
+    # processed image is never pixelated in the UI or when fed to the
+    # reconstruction model.
+    if min_output_size > 0:
+        w, h = result.size
+        if w < min_output_size or h < min_output_size:
+            new_size = max(min_output_size, max(w, h))
+            result = result.resize((new_size, new_size), Image.Resampling.LANCZOS)
+
+    return result
 
 
 def _smooth_alpha_channel(alpha_channel):
