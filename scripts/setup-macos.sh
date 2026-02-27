@@ -140,6 +140,9 @@ if [[ "$INSTALL_OPTIONAL_FORMATS" == "true" ]]; then
   pip_install pillow-heif pillow-avif-plugin
 fi
 
+echo "Installing UI dependencies (PySide6 and other requirements)..."
+pip_install -r "$PROJECT_ROOT/requirements.txt"
+
 echo "Verifying required imports..."
 "$INSTALL_PYTHON" - <<'PY'
 import importlib

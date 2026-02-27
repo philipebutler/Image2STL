@@ -10,8 +10,11 @@ try:
     import PySide6
 
     _qt_plugins = Path(PySide6.__file__).resolve().parent / "Qt" / "plugins"
-    os.environ.setdefault("QT_PLUGIN_PATH", str(_qt_plugins))
-    os.environ.setdefault("QT_QPA_PLATFORM_PLUGIN_PATH", str(_qt_plugins / "platforms"))
+    # Always override these with PySide6's own plugin paths so that a system Qt
+    # installation (e.g. Homebrew qt on macOS) cannot shadow the bundled cocoa /
+    # platform plugins and cause a startup crash.
+    os.environ["QT_PLUGIN_PATH"] = str(_qt_plugins)
+    os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(_qt_plugins / "platforms")
 except Exception:
     pass
 
@@ -39,7 +42,9 @@ def main():
     try:
         qt_plugin_root = os.environ.get("QT_PLUGIN_PATH")
         if qt_plugin_root:
-            QCoreApplication.setLibraryPaths([qt_plugin_root])
+            # Use addLibraryPath so PySide6's plugin directory is prepended to
+            # Qt's search list without discarding Qt's internal default paths.
+            QCoreApplication.addLibraryPath(qt_plugin_root)
         app = QApplication(sys.argv)
         app.setApplicationName("Image2STL")
         app.setApplicationVersion("1.0.0")
