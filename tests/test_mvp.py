@@ -453,6 +453,42 @@ endsolid demo
         self.assertEqual(result[0]["validation"]["result"], "pass")
 
 
+    def test_postprocess_mask_upscales_small_output(self):
+        """_postprocess_mask should upscale small results to at least min_output_size."""
+        try:
+            from PIL import Image
+            import numpy as np
+        except ImportError:
+            self.skipTest("Pillow or numpy not installed")
+        from image2stl.preprocess import _postprocess_mask
+
+        # Create a tiny RGBA image with a small foreground region
+        arr = np.zeros((64, 64, 4), dtype=np.uint8)
+        # Fill a 10x10 block in the center as the foreground
+        arr[27:37, 27:37] = [255, 128, 64, 255]
+        small_rgba = Image.fromarray(arr, mode="RGBA")
+
+        result = _postprocess_mask(small_rgba, hole_fill=False, island_threshold=0, crop_padding=0, min_output_size=512)
+        self.assertGreaterEqual(result.width, 512)
+        self.assertGreaterEqual(result.height, 512)
+
+    def test_postprocess_mask_does_not_downscale_large_output(self):
+        """_postprocess_mask should not shrink an image that already meets min_output_size."""
+        try:
+            from PIL import Image
+            import numpy as np
+        except ImportError:
+            self.skipTest("Pillow or numpy not installed")
+        from image2stl.preprocess import _postprocess_mask
+
+        # Large foreground: 600x600 fully opaque
+        arr = np.ones((600, 600, 4), dtype=np.uint8) * 255
+        large_rgba = Image.fromarray(arr, mode="RGBA")
+
+        result = _postprocess_mask(large_rgba, hole_fill=False, island_threshold=0, crop_padding=0, min_output_size=512)
+        self.assertEqual(result.width, 600)
+        self.assertEqual(result.height, 600)
+
     def test_preprocess_images_command_success(self):
         """preprocess_images engine command should return processed file paths on success."""
         with tempfile.TemporaryDirectory() as tmp:
