@@ -206,3 +206,12 @@ RuntimeError: qArgDataFromPyType: Unable to find a QMetaType for "list".
 2026-02-26 23:46:31,319 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/facebook/dino-vitb16/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
 2026-02-26 23:46:31,354 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/dino-vitb16/f205d5d8e640a89a2b8ef0369670dfc37cc07fc2/config.json "HTTP/1.1 200 OK"
 2026-02-26 23:47:15,762 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json
+2026-02-26 23:48:18,785 - config - INFO - Loaded configuration from /Users/philipbutler/.image2stl/config.json
+2026-02-26 23:48:18,946 - __main__ - INFO - Application started successfully
+2026-02-26 23:49:01,815 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/config.yaml "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 23:49:01,855 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/stabilityai/TripoSR/5b521936b01fbe1890f6f9baed0254ab6351c04a/config.yaml "HTTP/1.1 200 OK"
+2026-02-26 23:49:01,945 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/stabilityai/TripoSR/resolve/main/model.ckpt "HTTP/1.1 302 Found"
+2026-02-26 23:49:03,332 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/facebook/dino-vitb16/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-02-26 23:49:03,333 - huggingface_hub.utils._http - WARNING - Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+2026-02-26 23:49:03,374 - httpx - INFO - HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/dino-vitb16/f205d5d8e640a89a2b8ef0369670dfc37cc07fc2/config.json "HTTP/1.1 200 OK"
+2026-02-27 18:36:38,049 - config - INFO - Saved configuration to /Users/philipbutler/.image2stl/config.json
