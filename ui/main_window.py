@@ -42,6 +42,7 @@ from ui.dialogs.hardware_info_dialog import HardwareInfoDialog
 logger = logging.getLogger(__name__)
 
 _SETTINGS_HASH_SUFFIX_RE = re.compile(r"_[0-9a-fA-F]{8}$")
+_TRIPOSR_SOURCE_CHECKOUT = "__TRIPOSR_SOURCE_CHECKOUT__"
 
 
 class MainWindow(QMainWindow):
@@ -115,7 +116,7 @@ class MainWindow(QMainWindow):
         # Status bar
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Drag and drop 3-50 images or use File → Add Images.")
+        self.status_bar.showMessage("Drag and drop 3–50 images or use Images → Add Images…")
 
     def _create_left_panel(self) -> QWidget:
         panel = QWidget()
@@ -187,6 +188,18 @@ class MainWindow(QMainWindow):
         hw_info_action.setToolTip("Show detected hardware capabilities for reconstruction")
         hw_info_action.triggered.connect(self._on_hardware_info)
         recon_menu.addAction(hw_info_action)
+
+        recon_menu.addSeparator()
+
+        check_local_action = QAction("Check &Local Setup…", self)
+        check_local_action.setToolTip("Verify local Python dependencies and model cache")
+        check_local_action.triggered.connect(self._on_check_local_setup)
+        recon_menu.addAction(check_local_action)
+
+        check_cloud_action = QAction("Check &Cloud Setup…", self)
+        check_cloud_action.setToolTip("Verify Meshy.ai API key configuration")
+        check_cloud_action.triggered.connect(self._on_check_cloud_setup)
+        recon_menu.addAction(check_cloud_action)
 
     # ------------------------------------------------------------------
     # Signal connections
@@ -362,6 +375,106 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     @Slot()
+    def _on_check_local_setup(self):
+        """Run the local dependency/environment check and show results."""
+        from image2stl.engine import process_command
+        try:
+            results = process_command({"command": "check_environment", "mode": "local"})
+        except Exception as exc:
+            QMessageBox.critical(self, "Check Local Setup", f"Could not run environment check:\n{exc}")
+            return
+        response = next((m for m in results if m.get("command") == "check_environment"), {})
+        local = response.get("local", {})
+        model = response.get("model", {})
+        python_info = response.get("python", {})
+        ok = local.get("ok", False)
+        missing = local.get("missing", [])
+        deps = local.get("dependencies", [])
+
+        lines = [f"Python {python_info.get('version', 'unknown')}", ""]
+        if ok:
+            lines.append("✓ All required dependencies are installed.")
+        else:
+            missing_names = ", ".join(m.get("package", m.get("module", "?")) for m in missing)
+            lines.append(f"✗ Missing required packages: {missing_names}")
+            pip_packages = [
+                m.get("installTarget", m.get("package", ""))
+                for m in missing
+                if m.get("installTarget", "") != _TRIPOSR_SOURCE_CHECKOUT
+            ]
+            if pip_packages:
+                lines.append(f"  Install with: pip install {' '.join(pip_packages)}")
+            if any(m.get("installTarget") == _TRIPOSR_SOURCE_CHECKOUT for m in missing):
+                lines.append("  TripoSR requires a source checkout — see README for setup instructions.")
+
+        optional_missing = [d for d in deps if not d.get("required") and not d.get("installed")]
+        if optional_missing:
+            lines.append("")
+            lines.append("Optional (not installed):")
+            for d in optional_missing:
+                lines.append(f"  • {d.get('package', d.get('module', '?'))}")
+
+        cache_status = model.get("cacheStatusBeforeLoad", "unknown")
+        download_needed = model.get("downloadLikelyRequired")
+        lines.append("")
+        if cache_status == "cached":
+            lines.append("✓ TripoSR model weights are cached locally.")
+        elif cache_status == "not_cached":
+            lines.append("⚠ TripoSR model weights are not cached. First run will download ~1.5 GB.")
+        else:
+            lines.append(f"TripoSR cache status: {cache_status}")
+        if download_needed is False:
+            pass
+        elif download_needed is True:
+            lines.append("  Ensure internet access and ~1.5 GB free disk space before running local reconstruction.")
+
+        title = "Local Setup — OK" if ok else "Local Setup — Issues Found"
+        icon = QMessageBox.Icon.Information if ok else QMessageBox.Icon.Warning
+        msg = QMessageBox(icon, title, "\n".join(lines), QMessageBox.StandardButton.Ok, self)
+        msg.exec()
+
+    @Slot()
+    def _on_check_cloud_setup(self):
+        """Check Meshy.ai API key configuration and show results."""
+        from image2stl.engine import process_command
+        api_key = self.config.get("meshy_api.api_key", "")
+        try:
+            results = process_command({
+                "command": "check_environment",
+                "mode": "cloud",
+                "apiKey": api_key if api_key else None,
+            })
+        except Exception as exc:
+            QMessageBox.critical(self, "Check Cloud Setup", f"Could not run environment check:\n{exc}")
+            return
+        response = next((m for m in results if m.get("command") == "check_environment"), {})
+        cloud = response.get("cloud", {})
+        configured = cloud.get("apiKeyConfigured", False)
+        env_var = cloud.get("apiKeyEnvVar", "MESHY_API_KEY")
+        if configured:
+            lines = [
+                "✓ Meshy.ai API key is configured.",
+                "",
+                "Cloud reconstruction is available. Select 'Cloud' mode and click",
+                "'Generate 3D Model' to use the Meshy.ai service.",
+            ]
+            title = "Cloud Setup — Ready"
+            icon = QMessageBox.Icon.Information
+        else:
+            lines = [
+                "✗ No Meshy.ai API key found.",
+                "",
+                "To use cloud reconstruction:",
+                "  1. Obtain a key at https://www.meshy.ai",
+                "  2. Enter it in File → Settings… → Cloud API, or",
+                f"  3. Set the {env_var} environment variable before launching.",
+            ]
+            title = "Cloud Setup — API Key Required"
+            icon = QMessageBox.Icon.Warning
+        msg = QMessageBox(icon, title, "\n".join(lines), QMessageBox.StandardButton.Ok, self)
+        msg.exec()
+
+    @Slot()
     def _on_add_images(self):
         paths, _ = QFileDialog.getOpenFileNames(
             self,
@@ -381,9 +494,9 @@ class MainWindow(QMainWindow):
     def _on_images_changed(self, image_paths: list):
         count = len(image_paths)
         if count < 3:
-            msg = f"Loaded {count} image(s). Add at least {3 - count} more."
-        elif count > 5:
-            msg = f"Loaded {count} image(s). Use 3–50 images for best results."
+            msg = f"Loaded {count} image(s). Add at least {3 - count} more to enable reconstruction."
+        elif count > 50:
+            msg = f"Loaded {count} image(s). Too many images — use 3–50 for best results."
         else:
             msg = f"Loaded {count} image(s). Ready for reconstruction."
         self.status_bar.showMessage(msg)
