@@ -527,9 +527,21 @@ class TestEnginePostProcessing(unittest.TestCase):
         engine = self._engine()
         order = []
 
-        with patch.object(engine, "_repair", side_effect=lambda s, d: (order.append("repair") or s)), \
-             patch.object(engine, "_optimize", side_effect=lambda s, d: (order.append("optimize") or s)), \
-             patch.object(engine, "_scale_and_export", side_effect=lambda s, d, mm: (order.append("scale") or s)):
+        def _fake_repair(s, d):
+            order.append("repair")
+            return s
+
+        def _fake_optimize(s, d):
+            order.append("optimize")
+            return s
+
+        def _fake_scale(s, d, mm):
+            order.append("scale")
+            return s
+
+        with patch.object(engine, "_repair", side_effect=_fake_repair), \
+             patch.object(engine, "_optimize", side_effect=_fake_optimize), \
+             patch.object(engine, "_scale_and_export", side_effect=_fake_scale):
             engine._post_process(Path("/tmp/mesh.obj"), Path("/tmp/out"))
 
         self.assertEqual(order, ["repair", "optimize", "scale"])

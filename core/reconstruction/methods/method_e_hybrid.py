@@ -192,6 +192,12 @@ class MethodEHybrid(BaseReconstructor):
     # Internal helpers
     # ------------------------------------------------------------------
 
+    # Scoring weights / scales for reference image selection.
+    _SHARPNESS_SCALE = 1000.0
+    _SHARPNESS_WEIGHT = 0.6
+    _CONTRAST_SCALE = 100.0
+    _CONTRAST_WEIGHT = 0.4
+
     def _select_best_reference(self, images: List[Path]) -> Path:
         """Select the sharpest image as the view-synthesis reference.
 
@@ -219,7 +225,10 @@ class MethodEHybrid(BaseReconstructor):
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
             contrast = float(gray.std())
-            score = (sharpness / 1000.0) * 0.6 + (contrast / 100.0) * 0.4
+            score = (
+                (sharpness / self._SHARPNESS_SCALE) * self._SHARPNESS_WEIGHT
+                + (contrast / self._CONTRAST_SCALE) * self._CONTRAST_WEIGHT
+            )
             if score > best_score:
                 best_score = score
                 best_image = img_path

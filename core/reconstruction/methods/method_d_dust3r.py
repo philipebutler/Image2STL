@@ -254,7 +254,6 @@ class MethodDDust3R(BaseReconstructor):
             linear_fit=False,
         )
 
-        import numpy as np
         vertices_to_remove = np.asarray(densities) < np.quantile(densities, 0.1)
         mesh.remove_vertices_by_mask(vertices_to_remove)
 
