@@ -29,10 +29,16 @@ A desktop application for creating 3D-printable models from smartphone photos. P
 - Display thumbnails of loaded images in UI
 
 #### FR3: 3D Reconstruction
-- **Local Mode**: Use TripoSR (or similar open-source model) running via bundled Python engine
-- **Cloud Mode**: Use Meshy.ai API for reconstruction
-- User selects mode via UI toggle/dropdown before processing
-- Target processing time: 5-10 minutes
+- **Multi-Method Engine**: Attempts methods in priority order (E → D → C → Cloud) with automatic fallback
+  - **Method E (Hybrid Photogrammetry)**: Combines real photos with AI-generated views (SyncDreamer/Zero123++) and COLMAP. Requires 6+ GB VRAM and COLMAP. Highest quality.
+  - **Method D (Dust3R Multi-View)**: Pairwise AI reconstruction using Dust3R. Requires 4+ GB VRAM. High quality.
+  - **Method C (TripoSR Fusion)**: Per-image TripoSR inference + ICP alignment + mesh fusion. CPU-capable. Good quality.
+  - **Cloud (Meshy.ai)**: Cloud-based reconstruction via Meshy.ai API. Requires API key and internet.
+- Hardware detection selects the best available method automatically
+- User can override with manual method selection (Auto / E / D / C / Cloud)
+- Unavailable methods are greyed out in the UI based on detected hardware
+- Estimated processing time per method is displayed
+- Target processing time: 3-10 minutes depending on method
 - Warn user if estimated time >10 minutes
 
 #### FR4: Mesh Processing
@@ -116,18 +122,28 @@ A desktop application for creating 3D-printable models from smartphone photos. P
 │  │  Project Management          │   │
 │  │  Image Loading/Preview       │   │
 │  │  3D Viewer (Python/OpenGL)   │   │
+│  │  Method Selection / HW Info  │   │
 │  │  Settings & Controls         │   │
 │  └──────────────────────────────┘   │
 └──────────────┬──────────────────────┘
-               │ IPC (stdin/stdout)
-               │ JSON messages
+               │ in-process calls
+               │
 ┌──────────────▼──────────────────────┐
-│   Python Reconstruction Engine      │
+│   Multi-Method Reconstruction Engine │
 │  ┌──────────────────────────────┐   │
-│  │  Image Processing            │   │
-│  │  TripoSR Inference           │   │
-│  │  Meshy.ai API Client         │   │
-│  │  Mesh Repair (PyMeshLab)     │   │
+│  │  HardwareCapabilities detect │   │
+│  │  MethodSelector (E→D→C→Cloud)│   │
+│  │  ReconstructionEngine        │   │
+│  │  ├─ MethodEHybrid            │   │
+│  │  │   ├─ ViewSynthesizer      │   │
+│  │  │   ├─ COLMAPWrapper        │   │
+│  │  │   └─ MeshVerifier         │   │
+│  │  ├─ MethodDDust3R            │   │
+│  │  ├─ MethodCTripoSR           │   │
+│  │  │   └─ MeshAligner (ICP)    │   │
+│  │  └─ MethodCloud (Meshy.ai)   │   │
+│  │  Post-processing pipeline:   │   │
+│  │   repair → optimize → scale  │   │
 │  └──────────────────────────────┘   │
 └─────────────────────────────────────┘
 ```
@@ -142,10 +158,12 @@ A desktop application for creating 3D-printable models from smartphone photos. P
 
 #### Backend (Python)
 - **Python**: 3.10+
-- **AI Model**: TripoSR (stabilityai/TripoSR)
-- **Mesh Processing**: PyMeshLab, trimesh
+- **Multi-Method AI Engine**: MethodEHybrid, MethodDDust3R, MethodCTripoSR, MethodCloud
+- **View Synthesis**: Zero123++ (diffusers) or SyncDreamer
+- **Photogrammetry**: COLMAP (external binary, Method E only)
+- **Mesh Processing**: trimesh (repair, ICP alignment, decimation, scaling)
 - **Cloud API**: Meshy.ai Python SDK
-- **Dependencies**: PyTorch (CPU), numpy, Pillow
+- **Dependencies**: PyTorch, numpy, Pillow, trimesh, open3d, opencv-python, diffusers
 - **Packaging**: PyInstaller with --onefile
 
 #### Installer
