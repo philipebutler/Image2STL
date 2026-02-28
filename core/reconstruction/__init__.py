@@ -5,6 +5,8 @@ Provides:
 - Hardware detection and method selection
 - Abstract base class for reconstruction methods
 - Standardized result types
+- Concrete method stubs (E, D, C, Cloud)
+- Shared component stubs (ViewSynthesizer, COLMAPWrapper, MeshAligner, MeshVerifier)
 """
 
 from core.reconstruction.method_selector import (
@@ -16,6 +18,18 @@ from core.reconstruction.base_reconstructor import (
     BaseReconstructor,
     ReconstructionResult,
 )
+from core.reconstruction.methods import (
+    MethodEHybrid,
+    MethodDDust3R,
+    MethodCTripoSR,
+    MethodCloud,
+)
+from core.reconstruction.components import (
+    ViewSynthesizer,
+    COLMAPWrapper,
+    MeshAligner,
+    MeshVerifier,
+)
 
 __all__ = [
     "ReconstructionMethod",
@@ -23,4 +37,12 @@ __all__ = [
     "MethodSelector",
     "BaseReconstructor",
     "ReconstructionResult",
+    "MethodEHybrid",
+    "MethodDDust3R",
+    "MethodCTripoSR",
+    "MethodCloud",
+    "ViewSynthesizer",
+    "COLMAPWrapper",
+    "MeshAligner",
+    "MeshVerifier",
 ]
