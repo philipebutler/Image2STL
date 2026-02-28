@@ -7,6 +7,7 @@ Provides:
 - Standardized result types
 - Concrete method stubs (E, D, C, Cloud)
 - Shared component stubs (ViewSynthesizer, COLMAPWrapper, MeshAligner, MeshVerifier)
+- Orchestration engine with fallback and post-processing (Phase 3)
 """
 
 from core.reconstruction.method_selector import (
@@ -30,6 +31,7 @@ from core.reconstruction.components import (
     MeshAligner,
     MeshVerifier,
 )
+from core.reconstruction.engine import ReconstructionEngine, MethodAttempt
 
 __all__ = [
     "ReconstructionMethod",
@@ -45,4 +47,6 @@ __all__ = [
     "COLMAPWrapper",
     "MeshAligner",
     "MeshVerifier",
+    "ReconstructionEngine",
+    "MethodAttempt",
 ]

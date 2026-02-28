@@ -11,6 +11,8 @@ from typing import Callable, List, Optional
 import logging
 
 from image2stl.engine import process_command
+from core.reconstruction.engine import ReconstructionEngine as _MultiMethodEngine
+from core.reconstruction.method_selector import ReconstructionMethod
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +120,77 @@ class ReconstructionEngine:
                 # Clear thread and operation ID when the reconstruction finishes
                 self._thread = None
                 self._current_operation_id = None
+
+        self._thread = threading.Thread(target=_run, daemon=True)
+        self._thread.start()
+
+    def reconstruct_multi(
+        self,
+        images: List[str],
+        output_dir: Path,
+        method_chain: Optional[List[ReconstructionMethod]] = None,
+        on_progress: Optional[Callable[[int, str], None]] = None,
+        on_method_started: Optional[Callable[[str], None]] = None,
+        on_method_completed: Optional[Callable[[str, bool], None]] = None,
+        on_success: Optional[Callable[[str, dict], None]] = None,
+        on_error: Optional[Callable[[str, str], None]] = None,
+    ):
+        """Start multi-method reconstruction in a background thread.
+
+        Uses the new :class:`core.reconstruction.engine.ReconstructionEngine`
+        which attempts methods in priority order (E → D → C → Cloud) and falls
+        back automatically on failure.
+
+        Args:
+            images: List of absolute image path strings.
+            output_dir: Destination directory for output files.
+            method_chain: Ordered list of :class:`ReconstructionMethod` values to
+                try.  ``None`` triggers automatic hardware-based selection.
+            on_progress: Called with ``(percent, status)`` as work progresses.
+            on_method_started: Called with method name when an attempt begins.
+            on_method_completed: Called with ``(method_name, success)`` per attempt.
+            on_success: Called with ``(output_path, stats_dict)`` on success.
+            on_error: Called with ``(error_code, message)`` on failure.
+        """
+        if self.is_running:
+            logger.warning("Reconstruction already in progress")
+            return
+
+        image_paths = [Path(p) for p in images]
+        engine = _MultiMethodEngine(config=self._config)
+
+        def _run():
+            try:
+                result = engine.reconstruct(
+                    images=image_paths,
+                    output_dir=output_dir,
+                    method_chain=method_chain,
+                    on_progress=on_progress,
+                    on_method_started=on_method_started,
+                    on_method_completed=on_method_completed,
+                )
+                if result.success:
+                    if on_success:
+                        try:
+                            on_success(
+                                str(result.mesh_path),
+                                {
+                                    "method_used": result.method_used,
+                                    "processing_time_seconds": result.processing_time_seconds,
+                                    "quality_score": result.quality_score,
+                                    **result.metadata,
+                                },
+                            )
+                        except Exception:
+                            logger.exception("on_success callback raised an exception")
+                else:
+                    if on_error:
+                        try:
+                            on_error("ALL_METHODS_FAILED", result.error_message or "")
+                        except Exception:
+                            logger.exception("on_error callback raised an exception")
+            finally:
+                self._thread = None
 
         self._thread = threading.Thread(target=_run, daemon=True)
         self._thread.start()
