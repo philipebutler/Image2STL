@@ -27,14 +27,17 @@ import logging
 from config import Config
 from core.project_manager import ProjectManager
 from core.reconstruction_engine import ReconstructionEngine
+from core.reconstruction.method_selector import MethodSelector
 from ui.widgets.image_gallery import ImageGallery
 from ui.widgets.viewer_3d import Viewer3D
 from ui.widgets.control_panel import ControlPanel
 from ui.widgets.progress_widget import ProgressWidget
+from ui.widgets.method_status_widget import MethodStatusWidget
 from ui.dialogs.new_project_dialog import NewProjectDialog
 from ui.dialogs.open_project_dialog import OpenProjectDialog
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.export_dialog import ExportDialog
+from ui.dialogs.hardware_info_dialog import HardwareInfoDialog
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +101,11 @@ class MainWindow(QMainWindow):
         # Control panel (mode, scale, isolation, buttons)
         self.control_panel = ControlPanel(self.config)
         main_layout.addWidget(self.control_panel)
+
+        # Method status widget (shows active method and attempt history)
+        self.method_status_widget = MethodStatusWidget()
+        self.method_status_widget.setVisible(False)
+        main_layout.addWidget(self.method_status_widget)
 
         # Progress + error display
         self.progress_widget = ProgressWidget()
@@ -173,6 +181,13 @@ class MainWindow(QMainWindow):
         preprocess_action.triggered.connect(self._on_preprocess)
         images_menu.addAction(preprocess_action)
 
+        # Reconstruction menu
+        recon_menu = menu_bar.addMenu("&Reconstruction")
+        hw_info_action = QAction("Hardware &Info…", self)
+        hw_info_action.setToolTip("Show detected hardware capabilities for reconstruction")
+        hw_info_action.triggered.connect(self._on_hardware_info)
+        recon_menu.addAction(hw_info_action)
+
     # ------------------------------------------------------------------
     # Signal connections
     # ------------------------------------------------------------------
@@ -183,6 +198,7 @@ class MainWindow(QMainWindow):
         self.control_panel.export_requested.connect(self._on_export)
         self.control_panel.cancel_requested.connect(self._on_cancel)
         self.control_panel.preprocess_requested.connect(self._on_preprocess)
+        self.control_panel.hardware_info_requested.connect(self._on_hardware_info)
 
     # ------------------------------------------------------------------
     # Window state
@@ -335,6 +351,14 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_settings(self):
         dialog = SettingsDialog(self.config, parent=self)
+        dialog.exec()
+
+    @Slot()
+    def _on_hardware_info(self):
+        """Show the hardware capabilities dialog."""
+        dialog = HardwareInfoDialog(
+            self.control_panel._hardware, parent=self
+        )
         dialog.exec()
 
     @Slot()
@@ -630,12 +654,14 @@ class MainWindow(QMainWindow):
 
     def _start_reconstruction(self, images: list[str]):
         """Start the reconstruction pipeline with the given image list."""
-        # Determine output path
+        # Determine output path / directory
         project = self.project_manager.current_project
         if project:
             output_path = project.models_dir / "raw_reconstruction.obj"
+            output_dir = project.models_dir
         else:
             output_path = Path.home() / "raw_reconstruction.obj"
+            output_dir = Path.home()
 
         mode = self.control_panel.reconstruction_mode
         api_key = self.config.get("meshy_api.api_key") if mode == "cloud" else None
@@ -643,26 +669,54 @@ class MainWindow(QMainWindow):
         self.progress_widget.reset()
         self.progress_widget.setVisible(True)
         self.progress_widget.clear_info()
+        self.method_status_widget.reset()
+        self.method_status_widget.setVisible(mode != "cloud")
         self.control_panel.set_processing(True)
         source_mode = self.control_panel.preprocess_source
         self.status_bar.showMessage(
             f"Generating 3D model ({mode} mode, source: {source_mode}, images: {len(images)})…"
         )
 
-        self.reconstruction_engine.reconstruct(
-            images=images,
-            output_path=output_path,
-            mode=mode,
-            api_key=api_key,
-            assumptions_enabled=self.control_panel.assumptions_enabled,
-            assume_flat_bottom=self.control_panel.assume_flat_bottom,
-            assume_symmetry=self.control_panel.assume_symmetry,
-            assumption_confidence=self.control_panel.assumption_confidence,
-            assumption_preset=self.control_panel.assumption_preset,
-            on_progress=self._on_engine_progress,
-            on_success=self._on_engine_success,
-            on_error=self._on_engine_error,
-        )
+        if mode == "cloud":
+            # Legacy cloud path via the existing reconstruct() API
+            self.reconstruction_engine.reconstruct(
+                images=images,
+                output_path=output_path,
+                mode="cloud",
+                api_key=api_key,
+                assumptions_enabled=self.control_panel.assumptions_enabled,
+                assume_flat_bottom=self.control_panel.assume_flat_bottom,
+                assume_symmetry=self.control_panel.assume_symmetry,
+                assumption_confidence=self.control_panel.assumption_confidence,
+                assumption_preset=self.control_panel.assumption_preset,
+                on_progress=self._on_engine_progress,
+                on_success=self._on_engine_success,
+                on_error=self._on_engine_error,
+            )
+        else:
+            # Multi-method path with automatic fallback
+            user_pref = self.control_panel.selected_method  # None → auto
+            hw = self.control_panel._hardware
+            if user_pref is not None:
+                # Build a chain starting with the user's preferred method
+                method_chain = MethodSelector.select_method(
+                    hw, user_preference=user_pref, num_images=len(images)
+                )
+            else:
+                # Auto mode — pass None so the engine performs its own hardware
+                # detection and builds the optimal chain internally.
+                method_chain = None
+
+            self.reconstruction_engine.reconstruct_multi(
+                images=images,
+                output_dir=output_dir,
+                method_chain=method_chain,
+                on_progress=self._on_multi_engine_progress,
+                on_method_started=self._on_method_started,
+                on_method_completed=self._on_method_completed,
+                on_success=self._on_engine_success,
+                on_error=self._on_engine_error,
+            )
 
     def _on_engine_progress(self, fraction: float, status: str, estimated_seconds):
         # Called from background thread – use invokeMethod for thread safety
@@ -692,6 +746,70 @@ class MainWindow(QMainWindow):
         estimated_seconds = int(parsed.get("estimated_seconds", -1))
         self.progress_widget.set_progress(fraction, status, None if estimated_seconds < 0 else estimated_seconds)
 
+    # --- Multi-method callbacks (called from background thread) ---
+
+    def _on_multi_engine_progress(self, percent: int, status: str):
+        """Progress callback for reconstruct_multi (percent 0–100 int)."""
+        payload = json.dumps(
+            {
+                "fraction": float(percent) / 100.0,
+                "status": str(status),
+                "estimated_seconds": -1,
+            }
+        )
+        QMetaObject.invokeMethod(
+            self,
+            "_update_progress",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(str, payload),
+        )
+
+    def _on_method_started(self, method_name: str):
+        """Called when a reconstruction method attempt begins."""
+        payload = json.dumps({"method_name": str(method_name)})
+        QMetaObject.invokeMethod(
+            self,
+            "_handle_method_started",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(str, payload),
+        )
+
+    @Slot(str)
+    def _handle_method_started(self, payload: str):
+        try:
+            parsed = json.loads(payload) if payload else {}
+        except (TypeError, ValueError):
+            parsed = {}
+        method_name = str(parsed.get("method_name", ""))
+        self.method_status_widget.set_current_method(method_name)
+        self.progress_widget.set_stage_label(f"Attempting {method_name}…")
+
+    def _on_method_completed(self, method_name: str, success: bool):
+        """Called when a reconstruction method attempt finishes."""
+        payload = json.dumps(
+            {"method_name": str(method_name), "success": bool(success)}
+        )
+        QMetaObject.invokeMethod(
+            self,
+            "_handle_method_completed",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(str, payload),
+        )
+
+    @Slot(str)
+    def _handle_method_completed(self, payload: str):
+        try:
+            parsed = json.loads(payload) if payload else {}
+        except (TypeError, ValueError):
+            parsed = {}
+        method_name = str(parsed.get("method_name", ""))
+        success = bool(parsed.get("success", False))
+        self.method_status_widget.record_attempt(method_name, success)
+        if not success:
+            self.progress_widget.set_stage_label(
+                f"{method_name} failed — trying next method…"
+            )
+
     def _on_engine_success(self, output_path_str: str, stats: dict):
         payload = json.dumps({"output_path": output_path_str, "stats": stats or {}})
         QMetaObject.invokeMethod(
@@ -712,6 +830,7 @@ class MainWindow(QMainWindow):
         stats = stats_raw if isinstance(stats_raw, dict) else {}
         self._reconstructed_model_path = Path(output_path_str) if output_path_str else None
         self.progress_widget.set_complete()
+        self.method_status_widget.setVisible(False)
         self.control_panel.set_processing(False)
         loaded = False
         if self._reconstructed_model_path and self._reconstructed_model_path.exists():
@@ -811,12 +930,14 @@ class MainWindow(QMainWindow):
             parsed = {}
         error_code = str(parsed.get("error_code", ""))
         message = str(parsed.get("message", "Unknown reconstruction error"))
+        self.method_status_widget.setVisible(False)
         self.control_panel.set_processing(False)
         suggestions = {
             "INSUFFICIENT_IMAGES": "Add at least 3 images.",
             "TOO_MANY_IMAGES": "Use 3–50 images.",
             "API_ERROR": "Check your API key in Settings or try Local mode.",
             "RECONSTRUCTION_FAILED": "Try different images or switch to Cloud mode.",
+            "ALL_METHODS_FAILED": "No local reconstruction method could complete. Try Cloud mode.",
             "OPERATION_CANCELLED": "Operation was cancelled.",
         }
         suggestion = suggestions.get(error_code, "Check the log for details.")
