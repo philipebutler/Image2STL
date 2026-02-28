@@ -6,3 +6,14 @@ pillow-avif-plugin>=1.3.0
 rembg>=2.0.50
 # Optional: enables advanced foreground-mask cleanup (fill holes, island removal)
 scipy>=1.9.0
+# Phase 5: reconstruction method dependencies
+trimesh>=4.0.0
+torch>=2.0.0
+open3d>=0.17.0
+opencv-python>=4.8.0
+# Phase 5: view synthesis (Zero123++ backend; install SyncDreamer separately from source)
+diffusers>=0.26.0
+transformers>=4.36.0
+accelerate>=0.26.0
+# Phase 5: TripoSR (install from source: https://github.com/VAST-AI-Research/TripoSR)
+# Phase 5: Dust3R (install from source: https://github.com/naver/dust3r)

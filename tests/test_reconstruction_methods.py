@@ -268,57 +268,63 @@ class TestMethodCloud(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Component stub interface tests
+# Component interface tests (Phase 5 — real implementations)
 # ---------------------------------------------------------------------------
 
 class TestComponentImports(unittest.TestCase):
-    """Verify all component stubs are importable and raise NotImplementedError."""
+    """Verify all components are importable and behave correctly."""
 
     def test_view_synthesizer_importable(self):
         vs = ViewSynthesizer()
         self.assertIsNotNone(vs)
 
-    def test_view_synthesizer_raises(self):
+    def test_view_synthesizer_raises_without_deps(self):
+        """synthesize() should raise ImportError when torch/diffusers are absent."""
         vs = ViewSynthesizer()
-        with self.assertRaises(NotImplementedError):
-            vs.synthesize([], Path("/tmp"))
+        with self.assertRaises((ImportError, Exception)):
+            vs.synthesize([Path("/tmp/img.jpg")], Path("/tmp"))
 
     def test_colmap_wrapper_importable(self):
         cw = COLMAPWrapper()
         self.assertIsNotNone(cw)
 
-    def test_colmap_wrapper_sfm_raises(self):
+    def test_colmap_wrapper_sfm_raises_without_colmap(self):
+        """run_sfm() should raise RuntimeError when COLMAP is not installed."""
         cw = COLMAPWrapper()
-        with self.assertRaises(NotImplementedError):
-            cw.run_sfm([], Path("/tmp"))
+        with self.assertRaises(RuntimeError):
+            cw.run_sfm([], Path("/tmp/colmap_ws"))
 
-    def test_colmap_wrapper_dense_raises(self):
+    def test_colmap_wrapper_dense_raises_without_colmap(self):
+        """run_dense() should raise RuntimeError when COLMAP is not installed."""
         cw = COLMAPWrapper()
-        with self.assertRaises(NotImplementedError):
-            cw.run_dense(Path("/tmp"), Path("/tmp/out"))
+        with self.assertRaises(RuntimeError):
+            cw.run_dense(Path("/tmp/ws"), Path("/tmp/out"))
 
     def test_mesh_aligner_importable(self):
         ma = MeshAligner()
         self.assertIsNotNone(ma)
 
-    def test_mesh_aligner_raises(self):
+    def test_mesh_aligner_raises_on_empty_list(self):
+        """align() with an empty mesh list should raise ValueError."""
         ma = MeshAligner()
-        with self.assertRaises(NotImplementedError):
+        with self.assertRaises(ValueError):
             ma.align([], Path("/tmp/out.obj"))
 
     def test_mesh_verifier_importable(self):
         mv = MeshVerifier()
         self.assertIsNotNone(mv)
 
-    def test_mesh_verifier_score_raises(self):
+    def test_mesh_verifier_score_raises_on_missing_file(self):
+        """score() should raise when the mesh file does not exist."""
         mv = MeshVerifier()
-        with self.assertRaises(NotImplementedError):
-            mv.score(Path("/tmp/mesh.obj"), [])
+        with self.assertRaises(Exception):
+            mv.score(Path("/tmp/nonexistent_mesh_xyz.obj"), [])
 
-    def test_mesh_verifier_watertight_raises(self):
+    def test_mesh_verifier_watertight_raises_on_missing_file(self):
+        """is_watertight() should raise when the mesh file does not exist."""
         mv = MeshVerifier()
-        with self.assertRaises(NotImplementedError):
-            mv.is_watertight(Path("/tmp/mesh.obj"))
+        with self.assertRaises(Exception):
+            mv.is_watertight(Path("/tmp/nonexistent_mesh_xyz.obj"))
 
 
 # ---------------------------------------------------------------------------

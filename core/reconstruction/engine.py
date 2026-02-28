@@ -195,21 +195,110 @@ class ReconstructionEngine:
     # ------ individual post-processing steps (overridable in Phase 5) ------
 
     def _repair(self, src: Path, dst: Path) -> Path:
-        """Repair mesh to make it watertight (stub — returns *src* until Phase 5)."""
-        logger.debug("repair stub: %s → %s (no-op)", src, dst)
-        return src
+        """Repair mesh to make it watertight using trimesh.
+
+        Performs hole-filling, normal-fixing, degenerate-face removal, and
+        vertex merging.  Falls back to returning *src* if trimesh is not
+        installed or if loading fails.
+
+        Args:
+            src: Source mesh path.
+            dst: Destination mesh path.
+
+        Returns:
+            *dst* on success, *src* on fallback.
+        """
+        try:
+            import trimesh
+            import trimesh.repair as tr_repair
+        except ImportError:
+            logger.warning("trimesh not available; skipping mesh repair")
+            return src
+
+        try:
+            mesh = trimesh.load(str(src))
+            tr_repair.fill_holes(mesh)
+            tr_repair.fix_normals(mesh)
+            mesh.update_faces(mesh.nondegenerate_faces())
+            mesh.merge_vertices()
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            mesh.export(str(dst))
+            logger.debug("repair: %s → %s", src, dst)
+            return dst
+        except Exception as exc:
+            logger.warning("repair failed (%s); returning source unchanged", exc)
+            return src
 
     def _optimize(self, src: Path, dst: Path) -> Path:
-        """Simplify/optimise mesh (stub — returns *src* until Phase 5)."""
-        logger.debug("optimize stub: %s → %s (no-op)", src, dst)
-        return src
+        """Simplify/optimise mesh using trimesh quadric decimation.
+
+        Reduces face count to 50 % of the original when possible.  Falls
+        back to returning *src* if simplification is unavailable.
+
+        Args:
+            src: Source mesh path.
+            dst: Destination mesh path.
+
+        Returns:
+            *dst* on success, *src* on fallback.
+        """
+        try:
+            import trimesh
+        except ImportError:
+            logger.warning("trimesh not available; skipping mesh optimisation")
+            return src
+
+        try:
+            mesh = trimesh.load(str(src))
+            target = max(100, len(mesh.faces) // 2)
+            simplified = mesh.simplify_quadric_decimation(face_count=target)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            simplified.export(str(dst))
+            logger.debug(
+                "optimize: %s → %s (%d → %d faces)",
+                src, dst, len(mesh.faces), len(simplified.faces),
+            )
+            return dst
+        except Exception as exc:
+            logger.warning("optimize failed (%s); returning source unchanged", exc)
+            return src
 
     def _scale_and_export(self, src: Path, dst: Path, scale_mm: float) -> Path:
-        """Scale and export as STL (stub — returns *src* until Phase 5)."""
-        logger.debug(
-            "scale_and_export stub: %s → %s @ %.1f mm (no-op)", src, dst, scale_mm
-        )
-        return src
+        """Scale mesh so its longest dimension equals *scale_mm*, then export as STL.
+
+        Falls back to returning *src* if trimesh is not installed.
+
+        Args:
+            src: Source mesh path.
+            dst: Destination STL path.
+            scale_mm: Target size for the longest dimension in millimetres.
+
+        Returns:
+            *dst* on success, *src* on fallback.
+        """
+        try:
+            import numpy as np
+            import trimesh
+        except ImportError:
+            logger.warning("trimesh not available; skipping scale and export")
+            return src
+
+        try:
+            mesh = trimesh.load(str(src))
+            extent = mesh.bounds[1] - mesh.bounds[0]
+            max_dim = float(np.max(extent))
+            if max_dim > 0:
+                mesh.apply_scale(scale_mm / max_dim)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            mesh.export(str(dst))
+            logger.debug(
+                "scale_and_export: %s → %s @ %.1f mm (scale %.4f)",
+                src, dst, scale_mm, scale_mm / max_dim if max_dim > 0 else 1.0,
+            )
+            return dst
+        except Exception as exc:
+            logger.warning("scale_and_export failed (%s); returning source unchanged", exc)
+            return src
 
     # ------ utility ------
 
