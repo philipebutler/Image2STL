@@ -201,10 +201,10 @@ python main.py
 - **Method selection** — Choose Auto (hardware-optimised), Method E, D, C, or Cloud. Unavailable methods are greyed out. Estimated time per method is shown.
 - **Hardware info** — Displays detected GPU/CPU capabilities and which methods can run on the current system.
 - **Multi-stage progress** — Progress bar tracks the active method attempt and post-processing (repair → optimize → scale) stages.
-- **Cloud configuration** — In Cloud mode, enter Meshy.ai API key directly or specify the environment variable name to use.
+- **Cloud configuration** — Enter your Meshy.ai API key in File → Settings… → Cloud API, or set the `MESHY_API_KEY` environment variable before launching. Select Cloud mode when generating to use cloud reconstruction.
 - **Scale controls** — Numeric input for target size in millimeters and dropdown for axis selection (longest/width/height/depth).
 - **Generate 3D Model** — Starts the reconstruction pipeline with a progress bar and status messages.
-- **Setup checks** — `Check Local Setup` and `Check Cloud Setup` surface dependency/API-key issues in-app.
+- **Setup checks** — **Reconstruction → Check Local Setup…** reports installed/missing Python packages and TripoSR model cache status. **Reconstruction → Check Cloud Setup…** reports whether a Meshy.ai API key is configured.
 - **Export STL** — Opens a save dialog (defaulting to `<ProjectName>.stl`) to export the final model.
 - **Cancel** — Stops a running reconstruction operation.
 - **Progress & warnings** — Real-time progress bar, processing time warnings (>10 min), and user-friendly error messages from the engine.
