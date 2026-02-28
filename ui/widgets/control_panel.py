@@ -3,6 +3,8 @@ Control panel widget - reconstruction mode, scale, and action buttons.
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget,
@@ -21,6 +23,12 @@ from PySide6.QtWidgets import (
     QLineEdit,
 )
 
+from core.reconstruction.method_selector import (
+    HardwareCapabilities,
+    MethodSelector,
+    ReconstructionMethod,
+)
+
 
 class ControlPanel(QWidget):
     """Control bar containing reconstruction controls and action buttons.
@@ -34,10 +42,15 @@ class ControlPanel(QWidget):
     export_requested = Signal()
     cancel_requested = Signal()
     preprocess_requested = Signal()
+    hardware_info_requested = Signal()
 
     def __init__(self, config=None, parent=None):
         super().__init__(parent)
         self._config = config
+        # Detect hardware once at construction and cache the result so that
+        # radio-button enablement decisions are made without re-running detection
+        # on every UI event.
+        self._hardware: HardwareCapabilities = MethodSelector.detect_hardware()
         self._build_ui()
 
     # ------------------------------------------------------------------
@@ -46,7 +59,31 @@ class ControlPanel(QWidget):
 
     @property
     def reconstruction_mode(self) -> str:
-        return "cloud" if self._cloud_radio.isChecked() else "local"
+        """Return the active reconstruction mode string.
+
+        Returns one of: ``"auto"``, ``"method_e"``, ``"method_d"``,
+        ``"method_c"``, or ``"cloud"``.
+        """
+        if self._cloud_radio.isChecked():
+            return "cloud"
+        if self._method_e_radio.isChecked():
+            return "method_e"
+        if self._method_d_radio.isChecked():
+            return "method_d"
+        if self._method_c_radio.isChecked():
+            return "method_c"
+        return "auto"
+
+    @property
+    def selected_method(self) -> Optional[ReconstructionMethod]:
+        """Return the explicitly selected :class:`ReconstructionMethod`, or
+        ``None`` when *Auto* is active (engine auto-selects from hardware)."""
+        mapping = {
+            "method_e": ReconstructionMethod.METHOD_E,
+            "method_d": ReconstructionMethod.METHOD_D,
+            "method_c": ReconstructionMethod.METHOD_C,
+        }
+        return mapping.get(self.reconstruction_mode)
 
     @property
     def scale_mm(self) -> float:
@@ -88,6 +125,17 @@ class ControlPanel(QWidget):
         self._assume_symmetry_cb.setEnabled(not is_processing)
         self._assumption_confidence_spin.setEnabled(not is_processing)
         self._assumption_preset_combo.setEnabled(not is_processing)
+        # Lock/unlock method radio buttons; hardware-restricted methods stay
+        # disabled even when processing finishes.
+        self._auto_radio.setEnabled(not is_processing)
+        self._method_e_radio.setEnabled(
+            not is_processing and self._hardware.can_run_method_e
+        )
+        self._method_d_radio.setEnabled(
+            not is_processing and self._hardware.can_run_method_d
+        )
+        self._method_c_radio.setEnabled(not is_processing)
+        self._cloud_radio.setEnabled(not is_processing)
 
     def enable_export(self, enabled: bool = True):
         """Enable or disable the Export STL button."""
@@ -240,21 +288,67 @@ class ControlPanel(QWidget):
         top_row = QHBoxLayout()
         top_row.setSpacing(16)
 
-        # --- Reconstruction mode ---
-        mode_group = QGroupBox("Mode")
+        # --- Reconstruction method selection ---
+        mode_group = QGroupBox("Method")
         mode_layout = QHBoxLayout(mode_group)
         mode_layout.setSpacing(12)
 
-        self._local_radio = QRadioButton("Local")
-        self._local_radio.setChecked(True)
+        hw = self._hardware
+
+        self._auto_radio = QRadioButton("Auto")
+        self._auto_radio.setChecked(True)
+        self._auto_radio.setToolTip("Automatically select the best available method")
+
+        self._method_e_radio = QRadioButton("Method E")
+        self._method_e_radio.setEnabled(hw.can_run_method_e)
+        reqs_e = MethodSelector.get_method_requirements(ReconstructionMethod.METHOD_E)
+        self._method_e_radio.setToolTip(
+            f"{reqs_e.get('name', 'Method E')} — {reqs_e.get('description', '')}\n"
+            f"Est. time: {reqs_e.get('estimated_time_seconds', 0) // 60} min"
+            + ("" if hw.can_run_method_e else "\n⚠ Requires ≥ 6 GB VRAM")
+        )
+
+        self._method_d_radio = QRadioButton("Method D")
+        self._method_d_radio.setEnabled(hw.can_run_method_d)
+        reqs_d = MethodSelector.get_method_requirements(ReconstructionMethod.METHOD_D)
+        self._method_d_radio.setToolTip(
+            f"{reqs_d.get('name', 'Method D')} — {reqs_d.get('description', '')}\n"
+            f"Est. time: {reqs_d.get('estimated_time_seconds', 0) // 60} min"
+            + ("" if hw.can_run_method_d else "\n⚠ Requires ≥ 4 GB VRAM")
+        )
+
+        self._method_c_radio = QRadioButton("Method C")
+        reqs_c = MethodSelector.get_method_requirements(ReconstructionMethod.METHOD_C)
+        self._method_c_radio.setToolTip(
+            f"{reqs_c.get('name', 'Method C')} — {reqs_c.get('description', '')}\n"
+            f"Est. time: {reqs_c.get('estimated_time_seconds', 0) // 60} min"
+        )
+
         self._cloud_radio = QRadioButton("Cloud")
+        reqs_cl = MethodSelector.get_method_requirements(ReconstructionMethod.METHOD_CLOUD)
+        self._cloud_radio.setToolTip(
+            f"{reqs_cl.get('name', 'Cloud')} — {reqs_cl.get('description', '')}\n"
+            f"Est. time: {reqs_cl.get('estimated_time_seconds', 0) // 60} min"
+        )
+
+        self._hw_info_btn = QPushButton("HW Info…")
+        self._hw_info_btn.setFixedWidth(80)
+        self._hw_info_btn.setToolTip("Show detected hardware capabilities")
+        self._hw_info_btn.clicked.connect(self.hardware_info_requested)
 
         btn_group = QButtonGroup(self)
-        btn_group.addButton(self._local_radio)
+        btn_group.addButton(self._auto_radio)
+        btn_group.addButton(self._method_e_radio)
+        btn_group.addButton(self._method_d_radio)
+        btn_group.addButton(self._method_c_radio)
         btn_group.addButton(self._cloud_radio)
 
-        mode_layout.addWidget(self._local_radio)
+        mode_layout.addWidget(self._auto_radio)
+        mode_layout.addWidget(self._method_e_radio)
+        mode_layout.addWidget(self._method_d_radio)
+        mode_layout.addWidget(self._method_c_radio)
         mode_layout.addWidget(self._cloud_radio)
+        mode_layout.addWidget(self._hw_info_btn)
         top_row.addWidget(mode_group)
 
         # --- Scale controls ---

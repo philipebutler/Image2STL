@@ -47,11 +47,28 @@ class ProgressWidget(QWidget):
         else:
             self._warning_label.setVisible(False)
 
+    def set_stage_label(self, text: str):
+        """Show a multi-stage context label above the progress bar.
+
+        Useful for multi-method reconstruction to indicate which method
+        attempt is in progress (e.g. "Attempting Method E (1 of 3)").
+
+        Args:
+            text: Stage description string.  Pass an empty string to hide.
+        """
+        self._stage_label.setText(text)
+        self._stage_label.setVisible(bool(text))
+
+    def clear_stage_label(self):
+        """Hide the stage label."""
+        self._stage_label.setVisible(False)
+
     def set_complete(self):
         """Mark progress as complete."""
         self._bar.setValue(100)
         self._status_label.setText("Complete")
         self._warning_label.setVisible(False)
+        self.clear_stage_label()
 
     def show_error(self, message: str, suggestion: str = ""):
         """Display an error message below the progress bar."""
@@ -79,6 +96,7 @@ class ProgressWidget(QWidget):
         self._bar.setValue(0)
         self._status_label.setText("")
         self._warning_label.setVisible(False)
+        self._stage_label.setVisible(False)
         self._info_label.setVisible(False)
         self._error_frame.setVisible(False)
 
@@ -90,6 +108,14 @@ class ProgressWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 4)
         layout.setSpacing(4)
+
+        # Stage label (multi-method attempt indicator, hidden by default)
+        self._stage_label = QLabel()
+        self._stage_label.setStyleSheet(
+            "color: #aaaaaa; font-size: 11px; font-style: italic;"
+        )
+        self._stage_label.setVisible(False)
+        layout.addWidget(self._stage_label)
 
         # Progress row
         progress_row = QHBoxLayout()
