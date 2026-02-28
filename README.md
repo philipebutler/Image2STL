@@ -2,12 +2,24 @@
 
 Image2STL converts 3-5 smartphone images into a printable STL workflow with:
 
-- local reconstruction (TripoSR)
+- multi-method local reconstruction (Method E: Hybrid Photogrammetry, Method D: Dust3R, Method C: TripoSR Fusion)
 - cloud reconstruction (Meshy.ai)
-- mesh repair/scaling commands
-- PySide6 desktop UI with image gallery + 3D preview
+- automatic hardware detection and method selection with fallback chain (E → D → C → Cloud)
+- mesh repair/scaling via trimesh post-processing pipeline
+- PySide6 desktop UI with image gallery, method selection, hardware info, and 3D preview
 
 Implementation scope and behavior are defined in `SPEC.md`.
+
+## Reconstruction Methods
+
+| Method | Hardware | Quality | Notes |
+|--------|----------|---------|-------|
+| **E — Hybrid Photogrammetry** | GPU ≥ 6 GB VRAM + COLMAP | Highest | View synthesis + COLMAP photogrammetry |
+| **D — Dust3R Multi-View** | GPU ≥ 4 GB VRAM | High | Pairwise AI reconstruction |
+| **C — TripoSR Fusion** | CPU-capable (no GPU required) | Good | Per-image TripoSR + ICP alignment |
+| **Cloud — Meshy.ai** | Internet + API key | High | Cloud-based (no local GPU needed) |
+
+The engine selects the best available method automatically, falling back in the order **E → D → C → Cloud** when a method cannot run or encounters an error.
 
 ## Install
 
@@ -186,7 +198,9 @@ python main.py
 
 - **Image gallery** — Drag-and-drop or file picker to load 3-5 images. Thumbnails are displayed for each image; HEIC/HEIF files show a placeholder. Images with available processed versions are highlighted with a green border and a "✓ processed" badge.
 - **3D preview** — Interactive wireframe viewer with mouse-drag rotation and scroll-wheel zoom.
-- **Reconstruction mode** — Radio button toggle between Local (TripoSR) and Cloud (Meshy.ai) modes.
+- **Method selection** — Choose Auto (hardware-optimised), Method E, D, C, or Cloud. Unavailable methods are greyed out. Estimated time per method is shown.
+- **Hardware info** — Displays detected GPU/CPU capabilities and which methods can run on the current system.
+- **Multi-stage progress** — Progress bar tracks the active method attempt and post-processing (repair → optimize → scale) stages.
 - **Cloud configuration** — In Cloud mode, enter Meshy.ai API key directly or specify the environment variable name to use.
 - **Scale controls** — Numeric input for target size in millimeters and dropdown for axis selection (longest/width/height/depth).
 - **Generate 3D Model** — Starts the reconstruction pipeline with a progress bar and status messages.
